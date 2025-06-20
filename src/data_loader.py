@@ -98,7 +98,7 @@ class DataLoader:
 
 
     def load_ev_profiles(self, *, 
-                        num_evs: int = 400, 
+                        num_evs: int = 400,
                         discount: float = 0.2, 
                         charging_price: float = 180, 
                         seed: int = None) -> pd.DataFrame:
