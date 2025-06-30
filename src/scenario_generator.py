@@ -35,7 +35,7 @@ class ScenarioGenerator:
         scenarios = []
         for _ in range(self.num_scenarios):
             # 为每个EV生成随机到达和离开时间
-            scenario = ev_profiles.copy()
+            scenario = ev_profiles.copy()    #这里把data_loader里的ev_profiles先复制了一份 再把需要修改的part进行调整
             scenario['arrival_time'] = np.random.normal(
                 ev_profiles['arrival_time'].mean(),
                 ev_profiles['arrival_time'].std(),
@@ -49,8 +49,9 @@ class ScenarioGenerator:
             ).clip(16.0, 21.0)   #从load_ev_profile出发 每生成一个场景 其中就包含400辆EV的状态
             
             # 生成随机初始SOC
-            scenario['soc_initial'] = np.random.uniform(0.2, 0.35, len(ev_profiles))
-            
+            scenario['soc_arrival'] = np.random.uniform(0.2, 0.35, len(ev_profiles))
+            scenario['soc_departure'] = np.random.uniform(0.85, 0.95, len(ev_profiles))
+
             scenarios.append(scenario)
             
         return scenarios
@@ -143,15 +144,16 @@ class ScenarioGenerator:
             ev_scenario = ev_scenarios[i]
             feature.extend(ev_scenario['arrival_time'].values)
             feature.extend(ev_scenario['departure_time'].values)
-            feature.extend(ev_scenario['soc_initial'].values)
-            
+            feature.extend(ev_scenario['soc_arrival'].values)
+            feature.extend(ev_scenario['soc_departure'].values)
+
             # 价格特征
             price_scenario = price_scenarios[i]
             feature.extend(price_scenario['dam_prices'].values)
             feature.extend(price_scenario['rtm_prices'].values)
-            feature.extend(price_scenario['afrr_up_prices'].values)
+            feature.extend(price_scenario['afrr_up_prices'].values)  #投标价
             feature.extend(price_scenario['afrr_dn_prices'].values)
-            feature.extend(price_scenario['balancing_prices'].values)
+            feature.extend(price_scenario['balancing_prices'].values)   #激活价
             
             # AGC特征
             agc_scenario = agc_scenarios[i]

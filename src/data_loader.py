@@ -1,6 +1,7 @@
 import pandas as pd
 from pathlib import Path
 import numpy as np
+from typing import Tuple
 
 class DataLoader:
     def __init__(self, *, data_dir: str = "data"):
@@ -29,21 +30,16 @@ class DataLoader:
         price = pd.to_numeric(end_time_price_split[1], errors="coerce")
 
         start_time = pd.to_datetime(start_date + "" + start_time_raw, errors="coerce", dayfirst=True)
-        end_time = pd.to_datetime(start_date + "" + end_time_raw, errors="coerce", dayfirst=True)
-
-        result = pd.DataFrame(
-            {
-                "start_time": start_time,
-                "end_time": end_time,
-                "price": price,
-            }
-        ).dropna().sort_values(by="start_time")  #删除缺失值并按照时间顺序排列
-
+        # 只用start_time作为timeslot
+        result = pd.DataFrame({
+            "timeslot": start_time,
+            "price": price,
+        }).dropna().sort_values(by="timeslot")
         return result
 
     def load_agc_signal(self, *, 
                        filename: str = "SRL_Soll_20250501_20250531.csv",
-                       resample_freq: str = "15T") -> pd.DataFrame:
+                       resample_freq: str = "15T") -> Tuple[pd.DataFrame, float, float]:
         """load agc signal and generate K"""
         df = pd.read_csv(
             self.data_dir / filename,
@@ -61,14 +57,14 @@ class DataLoader:
         df_15min["agc_up"] = df_15min["value"].clip(lower=0)
         df_15min["agc_dn"] = (-df_15min["value"]).clip(upper=0)  #这里设置了下调信号为负值 单位从表格来看是MW
 
-        df_15min["K_up"] = df_15min.groupby(df_15min.index.time)["agc_up"].transform("max")*0.25  # *0.25 transfer MW to MWh
-        df_15min["K_dn"] = df_15min.groupby(df_15min.index.time)["agc_dn"].transform("max")*0.25
+        K_up = df_15min["agc_up"].max()*0.25  # *0.25 transfer MW to MWh
+        K_dn = df_15min["agc_dn"].max()*0.25
 
-        return df_15min[["agc_up", "agc_dn", "K_up", "K_dn"]]
-        #这里的逻辑是 每15分钟取上下调的平均值 再取出最大值乘时间转化为MWh 以用于后边的容量预存  这里和原论文有点出入  还需要再考虑一下
-
+        return df_15min[["agc_up", "agc_dn"]], K_up, K_dn
+        #这里的逻辑是 每15分钟取上下调的平均值 再取出最大值乘时间转化为MWh 以用于后边的容量预存  这里的agc_up就是论文里的l_up
+         
     def load_capacity_price(self, *, filename: str = "aFRR_prices_202505010000_202506010000.csv") -> pd.DataFrame:
-        """load aFRR capacity price"""
+        """load aFRR capacity price"""  "投标价"
         df = pd.read_csv(self.data_dir/filename)
         df["timeslot"] = pd.to_datetime(df["date"] + " " + df["time"])
         
@@ -82,7 +78,7 @@ class DataLoader:
 
     def load_balancing_energy_and_price(self, filename: str = "Balancing_energy_202505010000_202506010000_Quarterhour.csv") -> pd.DataFrame:
         """
-        读取balancing energy和价格数据
+        读取balancing energy和价格数据  "激活价"
         返回DataFrame，包含：start_time, end_time, volume_pos, volume_neg, balancing_price
         """
         df = pd.read_csv(self.data_dir / filename, sep=";")
@@ -100,7 +96,7 @@ class DataLoader:
     def load_ev_profiles(self, *, 
                         num_evs: int = 400,
                         discount: float = 0.2, 
-                        charging_price: float = 180, 
+                        charging_price: float = 180,  #这个基础充电价格和折扣比例参考了论文
                         seed: int = None) -> pd.DataFrame:
         """生成基准EV数据
         
@@ -116,8 +112,8 @@ class DataLoader:
                 - ev_type: EV类型（'cc'表示可控，'uc'表示不可控）
                 - arrival_time: 到达时间（小时）
                 - departure_time: 离开时间（小时）
-                - soc_initial: 初始SOC
-                - soc_target: 目标SOC
+                - soc_arrival: 到达时初始SOC
+                - soc_departure: 离开时目标SOC
                 - soc_max: 最大SOC
                 - soc_min: 最小SOC
                 - battery_capacity: 电池容量（kWh）
@@ -149,10 +145,10 @@ class DataLoader:
         df['departure_time'] = np.random.normal(18.55, 2.06, num_evs).clip(16.0, 21.0)
         
         # 生成初始SOC（假设大多数EV到达时SOC在20%-35%之间）
-        df['soc_initial'] = np.random.uniform(0.2, 0.35, num_evs)
+        df['soc_arrival'] = np.random.uniform(0.2, 0.35, num_evs)
         
         # 生成目标SOC（假设大多数EV希望充电到85%-95%）
-        df['soc_target'] = np.random.uniform(0.85, 0.95, num_evs)
+        df['soc_departure'] = np.random.uniform(0.85, 0.95, num_evs)
         
         # 设置SOC限制
         df['soc_max'] = 0.95  # 最大SOC限制
