@@ -20,112 +20,114 @@ class ScenarioGenerator:
         if seed is not None:
             np.random.seed(seed)
             
-    def generate_ev_scenarios(self, *, 
-                            ev_profiles: pd.DataFrame,
-                            T: int) -> List[pd.DataFrame]:
-        """生成EV场景
-        
-        Args:
-            ev_profiles: EV参数表
-            T: 时间步数
-            
-        Returns:
-            List[pd.DataFrame]: 场景列表
-        """
+    def generate_ev_scenarios(self, *, ev_profiles: pd.DataFrame) -> List[pd.DataFrame]:
+        """生成EV场景，每个场景都独立采样，符合原始分布"""
         scenarios = []
+        num_evs = len(ev_profiles)
         for _ in range(self.num_scenarios):
-            # 为每个EV生成随机到达和离开时间
-            scenario = ev_profiles.copy()    #这里把data_loader里的ev_profiles先复制了一份 再把需要修改的part进行调整
-            scenario['arrival_time'] = np.random.normal(
-                ev_profiles['arrival_time'].mean(),
-                ev_profiles['arrival_time'].std(),
-                len(ev_profiles)
-            ).clip(7.5, 10.5)
-            
-            scenario['departure_time'] = np.random.normal(
-                ev_profiles['departure_time'].mean(),
-                ev_profiles['departure_time'].std(),
-                len(ev_profiles)
-            ).clip(16.0, 21.0)   #从load_ev_profile出发 每生成一个场景 其中就包含400辆EV的状态
-            
-            # 生成随机初始SOC
-            scenario['soc_arrival'] = np.random.uniform(0.2, 0.35, len(ev_profiles))
-            scenario['soc_departure'] = np.random.uniform(0.85, 0.95, len(ev_profiles))
+            scenario = pd.DataFrame()
+            scenario['ev_id'] = range(num_evs)
+            scenario['ev_type'] = ev_profiles['ev_type'].values
+
+            # 按原始分布采样
+            scenario['arrival_time'] = np.random.normal(ev_profiles['arrival_time'].mean(), ev_profiles['arrival_time'].std(), num_evs).clip(7.5, 10.5)   #np.random.normal(均值, 标准差, 数量)
+            scenario['departure_time'] = np.random.normal(ev_profiles['departure_time'].mean(), ev_profiles['departure_time'].std(), num_evs).clip(16.0, 21.0)
+            scenario['soc_arrival'] = np.random.uniform(ev_profiles['soc_arrival'].min(), ev_profiles['soc_arrival'].max(), num_evs)  #np.random.uniform(最小值, 最大值, 数量)
+            scenario['soc_departure'] = np.random.uniform(ev_profiles['soc_departure'].min(), ev_profiles['soc_departure'].max(), num_evs)
+            scenario['soc_max'] = ev_profiles['soc_max'].values
+            scenario['soc_min'] = ev_profiles['soc_min'].values
+            scenario['battery_capacity'] = ev_profiles['battery_capacity'].values
+            scenario['max_charge_power'] = ev_profiles['max_charge_power'].values
+            scenario['efficiency'] = ev_profiles['efficiency'].values
+            scenario['charging_price'] = ev_profiles['charging_price'].values
 
             scenarios.append(scenario)
-            
         return scenarios
     
     def generate_price_scenarios(self, *,
-                               dam_prices: pd.Series,  #这个数据类型是说 一组一维带可重复的可哈希类型的索引的series（这里索引对应时间 series对应prices）
-                               rtm_prices: pd.Series,
-                               afrr_up_prices: pd.Series,
-                               afrr_dn_prices: pd.Series,
-                               balancing_prices: pd.Series,
-                               T: int) -> List[Dict[str, pd.Series]]:
-        """生成价格场景
-        
+                               dam_prices: pd.DataFrame,
+                               rtm_prices: pd.DataFrame,
+                               capacity_price: pd.DataFrame,
+                               balancing_prices: pd.DataFrame,
+                               T: int) -> List[pd.DataFrame]:
+        """生成价格场景，每个场景为DataFrame
         Args:
             dam_prices: 日前市场价格
             rtm_prices: 实时市场价格
-            afrr_up_prices: 上调容量价格
-            afrr_dn_prices: 下调容量价格
-            balancing_prices: 平衡价格
+            capacity_price: 容量投标价格
+            balancing_prices: 激活价格
             T: 时间步数
-            
         Returns:
-            List[Dict[str, pd.Series]]: 价格场景列表
+            List[pd.DataFrame]: 价格场景列表
         """
         scenarios = []
         for _ in range(self.num_scenarios):
-            # 生成随机价格波动
             dam_noise = np.random.normal(1, 0.1, T)
             rtm_noise = np.random.normal(1, 0.15, T)
-            afrr_up_noise = np.random.normal(1, 0.2, T)
-            afrr_dn_noise = np.random.normal(1, 0.2, T)
+            afrr_up_cap_noise = np.random.normal(1, 0.2, T)
+            afrr_dn_cap_noise = np.random.normal(1, 0.2, T)
             balancing_noise = np.random.normal(1, 0.1, T)
-            
-            scenario = {
-                'dam_prices': dam_prices * dam_noise,
-                'rtm_prices': rtm_prices * rtm_noise,
-                'afrr_up_prices': afrr_up_prices * afrr_up_noise,
-                'afrr_dn_prices': afrr_dn_prices * afrr_dn_noise,
-                'balancing_prices': balancing_prices * balancing_noise
-            }
+
+            scenario = pd.DataFrame({
+                'dam_prices': dam_prices['price'].values * dam_noise,
+                'rtm_prices': rtm_prices['price'].values * rtm_noise,
+                'afrr_up_cap_prices': capacity_price['afrr_up_cap_price'].values * afrr_up_cap_noise,
+                'afrr_dn_cap_prices': capacity_price['afrr_dn_cap_price'].values * afrr_dn_cap_noise,
+                'balancing_prices': balancing_prices['price'].values * balancing_noise
+            })
+
             scenarios.append(scenario)
-            
         return scenarios
     
     def generate_agc_scenarios(self, *,
                              agc_signals: pd.DataFrame,
-                             T: int) -> List[pd.DataFrame]:
-        """生成AGC信号场景
-        
+                             T: int,
+                             resample_freq: str = "15min") -> Tuple[List[pd.DataFrame], float, float]:
+        """
+        生成AGC信号场景，先分组采样，再生成带噪声场景，并返回K_up和K_dn
         Args:
-            agc_signals: AGC信号数据
+            agc_signals: 原始AGC信号数据（含timeslot, agc_delta）
             T: 时间步数
-            
+            resample_freq: 重采样频率，默认15分钟
         Returns:
             List[pd.DataFrame]: AGC信号场景列表
+            float: K_up
+            float: K_dn
         """
+        # 先分组采样，分别对正负分开求均值
+        def pos_mean(x):
+            return x[x > 0].mean() if (x > 0).any() else 0.0
+        def neg_mean(x):
+            return -x[x < 0].mean() if (x < 0).any() else 0.0
+
+        grouped = agc_signals.groupby(pd.Grouper(key="timeslot", freq=resample_freq))["agc_delta"].agg(
+            l_agc_up=pos_mean,
+            l_agc_dn=neg_mean
+        )
+        grouped = grouped.iloc[:T].reset_index(drop=True)
+        grouped["l_agc_up"] = grouped["l_agc_up"] * 0.25
+        grouped["l_agc_dn"] = grouped["l_agc_dn"] * 0.25  #按照理解 agc数据在每秒都应该是确定的要么正要么负 这里之所以两个是因为15min内正负都有
+
+        # 计算K_up和K_dn
+        K_up = grouped["l_agc_up"].max()
+        K_dn = grouped["l_agc_dn"].max()
+
+        # 生成带噪声的场景
         scenarios = []
         for _ in range(self.num_scenarios):
-            # 生成随机AGC信号波动
             agc_up_noise = np.random.normal(1, 0.1, T)
             agc_dn_noise = np.random.normal(1, 0.1, T)
-            
-            scenario = agc_signals.copy()
-            scenario['agc_up'] = agc_signals['agc_up'] * agc_up_noise
-            scenario['agc_dn'] = agc_signals['agc_dn'] * agc_dn_noise
-            
+            scenario = pd.DataFrame({
+                'agc_up': grouped['l_agc_up'] * agc_up_noise,
+                'agc_dn': grouped['l_agc_dn'] * agc_dn_noise
+            })
             scenarios.append(scenario)
-            
-        return scenarios
+        return scenarios, K_up, K_dn
     
     def reduce_scenarios(self, *,
                         ev_scenarios: List[pd.DataFrame],
-                        price_scenarios: List[Dict[str, pd.Series]],
-                        agc_scenarios: List[pd.DataFrame]) -> Tuple[List[pd.DataFrame], List[Dict[str, pd.Series]], List[pd.DataFrame]]:
+                        price_scenarios: List[pd.DataFrame],
+                        agc_scenarios: List[pd.DataFrame]) -> Tuple[List[pd.DataFrame], List[pd.DataFrame], List[pd.DataFrame]]:
         """使用K-means方法缩减场景数量
         
         Args:
@@ -151,9 +153,9 @@ class ScenarioGenerator:
             price_scenario = price_scenarios[i]
             feature.extend(price_scenario['dam_prices'].values)
             feature.extend(price_scenario['rtm_prices'].values)
-            feature.extend(price_scenario['afrr_up_prices'].values)  #投标价
-            feature.extend(price_scenario['afrr_dn_prices'].values)
-            feature.extend(price_scenario['balancing_prices'].values)   #激活价
+            feature.extend(price_scenario['afrr_up_cap_prices'].values)
+            feature.extend(price_scenario['afrr_dn_cap_prices'].values)
+            feature.extend(price_scenario['balancing_prices'].values)
             
             # AGC特征
             agc_scenario = agc_scenarios[i]

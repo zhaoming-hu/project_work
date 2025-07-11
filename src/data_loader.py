@@ -4,93 +4,56 @@ import numpy as np
 from typing import Tuple
 
 class DataLoader:
-    def __init__(self, *, data_dir: str = "data"):
+    def __init__(self, *, data_dir: str = "../data"):
         self.data_dir = Path(data_dir)
-    #这里因为很多数据表时间形式不同一  所以返回的dataframe不统一  仿真前需要先统一一下
 
-
-    def load_rtm_price(self, *, filename: str = "RTM_price_2025_06_03.csv") -> pd.DataFrame:
-        """load rtm price in May"""
-        df = pd.read_csv(self.data_dir/filename)
-        df = df.rename(columns={"Hours": "timeslot", "Price(€/MWh)": "Price"})
-        df["timeslot"] = pd.to_datetime(df["timeslot"]) #转换为datetime数据类型
-        df = df[["timeslot", "price"]].sort_values(by="timeslot") #按照时间顺序排列
+    def load_rtm_price(self, *, filename: str = "RTM_price_2025_06_30.csv") -> pd.DataFrame:
+        """读取实时市场价格"""
+        df = pd.read_csv(self.data_dir/filename, encoding='utf-8-sig')
+        df.columns = df.columns.str.strip()
+        df = df.rename(columns={"Timeslot": "timeslot", "Price(€/MWh)": "price"})
+        df["price"] = pd.to_numeric(df["price"], errors="coerce")
+        df = df[["timeslot", "price"]].sort_values(by="timeslot")
         return df
 
-    def load_dam_price(self, *,
-                      filename: str = "Day-ahead_prices_202505010000_202506010000_Quarterhour.csv") -> pd.DataFrame:
-        """load dam price in May"""
+    def load_dam_price(self, *, filename: str = "DAM_price_2025_06_29.csv") -> pd.DataFrame:
+        """读取日前市场价格"""
         df = pd.read_csv(self.data_dir/filename)
-        start_date = df[0].astype(str)
+        df = df.rename(columns={"Timeslot": "timeslot", "Price(€/MWh)": "price"})
+        df["price"] = pd.to_numeric(df["price"], errors="coerce")
+        df = df[["timeslot", "price"]].sort_values(by="timeslot")
+        return df
 
-        start_time_raw = df[1].astype(str).str.split(";", expand=True)[0]  # 2025 12:00 AM;May 1 舍去May 1
-        end_time_price_split = df[2].astype(str).str.split(";", expand=True)
+    def load_agc_signal(self, filename: str = "SRL_Soll_20250501.csv") -> pd.DataFrame:
+        """
+        只读取AGC信号原始数据，返回DataFrame，包含timeslot和agc_delta
+        """
+        df = pd.read_csv(self.data_dir / filename)
+        df = df.rename(columns={"Time": "timeslot", "AGC_delta(MW/MW)": "agc_delta"})
+        df["timeslot"] = pd.to_datetime(df["timeslot"], dayfirst=True)
+        df = df[["timeslot", "agc_delta"]].sort_values(by="timeslot")
+        return df
 
-        end_time_raw = end_time_price_split[0]
-        price = pd.to_numeric(end_time_price_split[1], errors="coerce")
-
-        start_time = pd.to_datetime(start_date + "" + start_time_raw, errors="coerce", dayfirst=True)
-        # 只用start_time作为timeslot
-        result = pd.DataFrame({
-            "timeslot": start_time,
-            "price": price,
-        }).dropna().sort_values(by="timeslot")
-        return result
-
-    def load_agc_signal(self, *, 
-                       filename: str = "SRL_Soll_20250501_20250531.csv",
-                       resample_freq: str = "15T") -> Tuple[pd.DataFrame, float, float]:
-        """load agc signal and generate K"""
-        df = pd.read_csv(
-            self.data_dir / filename,
-            sep=";",
-            names=["date", "time", "value"],
-            skiprows=1
-        )
-
-        df["timeslot"] = pd.to_datetime(df["date"] + " " + df["time"], dayfirst=True)
-        df = df[["timeslot", "value"]] #只保留时间戳和值列
-        df = df.set_index("timeslot").sort_index()  
-
-        df_15min = df.resample(resample_freq).mean()
-
-        df_15min["agc_up"] = df_15min["value"].clip(lower=0)
-        df_15min["agc_dn"] = (-df_15min["value"]).clip(upper=0)  #这里设置了下调信号为负值 单位从表格来看是MW
-
-        K_up = df_15min["agc_up"].max()*0.25  # *0.25 transfer MW to MWh
-        K_dn = df_15min["agc_dn"].max()*0.25
-
-        return df_15min[["agc_up", "agc_dn"]], K_up, K_dn
-        #这里的逻辑是 每15分钟取上下调的平均值 再取出最大值乘时间转化为MWh 以用于后边的容量预存  这里的agc_up就是论文里的l_up
-         
-    def load_capacity_price(self, *, filename: str = "aFRR_prices_202505010000_202506010000.csv") -> pd.DataFrame:
-        """load aFRR capacity price"""  "投标价"
+    def load_capacity_price(self, *, filename: str = "Capacity_price_2025-05-01.csv") -> pd.DataFrame:
+        """读取capacity_bids价格"""
         df = pd.read_csv(self.data_dir/filename)
-        df["timeslot"] = pd.to_datetime(df["date"] + " " + df["time"])
-        
-        result = df.rename(columns={
-            "up_price": "afrr_up_cap_price",
-            "down_price": "afrr_dn_cap_price"
+        df = df.rename(columns={
+            "Timeslot": "timeslot",
+            "Up_price(€/MWh)": "afrr_up_cap_price",
+            "Dn_price(€/MWh)": "afrr_dn_cap_price"
         })
-        
-        return result[["timeslot", "afrr_up_cap_price", "afrr_dn_cap_price"]].sort_values("timeslot")
-        #这里先只搭了一个框架  后续再补
+        df["afrr_up_cap_price"] = pd.to_numeric(df["afrr_up_cap_price"], errors="coerce")
+        df["afrr_dn_cap_price"] = pd.to_numeric(df["afrr_dn_cap_price"], errors="coerce")
+        df = df[["timeslot", "afrr_up_cap_price", "afrr_dn_cap_price"]].sort_values(by="timeslot")
+        return df
 
-    def load_balancing_energy_and_price(self, filename: str = "Balancing_energy_202505010000_202506010000_Quarterhour.csv") -> pd.DataFrame:
-        """
-        读取balancing energy和价格数据  "激活价"
-        返回DataFrame，包含：start_time, end_time, volume_pos, volume_neg, balancing_price
-        """
-        df = pd.read_csv(self.data_dir / filename, sep=";")
-        # 解析时间
-        df["start_time"] = pd.to_datetime(df["Start date"], errors="coerce")
-        df["end_time"] = pd.to_datetime(df["End date"], errors="coerce")
-
-        # 解析价格
-        df["balancing_price"] = pd.to_numeric(df["Price [€/MWh] Original resolutions"].replace("--", np.nan), errors="coerce")
-
-        return df[["start_time", "end_time", "balancing_price"]]
-
+    def load_balancing_energy_and_price(self, filename: str = "Balancing_price_2025_05_01.csv") -> pd.DataFrame:
+        """读取balancing price"""
+        df = pd.read_csv(self.data_dir / filename)
+        df = df.rename(columns={"Timeslot": "timeslot", "Price(€/MWh)": "price"})
+        df["price"] = pd.to_numeric(df["price"], errors="coerce")
+        df = df[["timeslot", "price"]].sort_values(by="timeslot")
+        return df
 
 
     def load_ev_profiles(self, *, 
