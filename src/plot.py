@@ -1,101 +1,109 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-import os
 
 
 def plot_ev_bids_and_price(model, dam_price, output_path=None):
     """
-    绘制EV的DAM Energy Bids和能源价格曲线
+    简洁绘制 EV 的 DAM Energy Bids 与价格曲线
+    """
+    # 1. 提取 EV bids（96个时间步）  这里取所有场景的平均值  因为场景概率均等
+    ev_bids = np.zeros(96)
+    for w in range(model.num_scenarios):
+        for t in range(96):
+            var = model.model.getVarByName(f"P_ev0_total[{w},{t}]")
+            if var is not None:
+                ev_bids[t] += var.X / model.num_scenarios
+ 
+    # 2. 提取 DAM 价格（96 点）
+    prices = dam_price['price'].values[:96]
+
+    # 3. 时间轴（0:00 到 23:45，每15分钟）
+    hours = np.arange(0, 24, 0.25)
+
+    # 4. 开始绘图
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+    ax1.bar(hours, ev_bids, width=0.2, color='orange', alpha=0.7, label='EV bids')
+    ax1.set_xlabel('Time (h)')
+    ax1.set_ylabel('EV Bids (MW)', color='black')
+    ax1.set_xlim(0, 24)
+    ax1.set_xticks(np.arange(0, 25, 2))
+
+    ax2 = ax1.twinx()
+    ax2.plot(hours, prices, color='blue', linewidth=1.5, label='Energy Price')
+    ax2.set_ylabel('Energy Price (€/MWh)', color='blue')
+
+    ax1.legend(loc='upper left')
+    ax2.legend(loc='upper right')
+
+    ax1.set_title('EV Bids and DAM Price')
+    plt.tight_layout()
+
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    else:
+        plt.show()
+
+    plt.close()
+
+
+def plot_ev_regulation_bids(model, output_path=None, case_name="Case I"):
+    """
+    绘制EV的调频上调(RU)和下调(RD)投标图
     
     Args:
         model: 已求解的优化模型
-        dam_price: 日前市场价格数据 DataFrame
         output_path: 输出图像路径，如果为None则显示图像
+        case_name: 案例名称，用于图表标题
     """
-    # 提取EV bids数据 (取平均值)
-    ev_bids = np.zeros(24)  # 按小时聚合
+    # 1. 提取调频上调和下调投标数据
+    reg_up = np.zeros(96)   # 上调容量
+    reg_dn = np.zeros(96)   # 下调容量
     
-    # 对所有场景求平均
-    if hasattr(model, 'model') and hasattr(model, 'num_scenarios'):
-        for w in range(model.num_scenarios):
-            for t in range(96):  # 假设模型时间间隔为15分钟，96个时间点
-                h = t // 4  # 转换为小时
-                if h >= 24:  # 安全检查
-                    continue
-                var_name = f"P_ev0_total[{w},{t}]"
-                try:
-                    var = model.model.getVarByName(var_name)
-                    if var is not None:
-                        ev_bids[h] += var.X / model.num_scenarios / 4  # 除以4是因为每小时有4个15分钟
-                except Exception as e:
-                    pass  # 忽略不存在的变量
+    # 从模型中提取数据并计算所有场景的平均值
+    for w in range(model.num_scenarios):
+        for t in range(96):
+            # 获取上调容量变量
+            ru_var = model.model.getVarByName(f"R_ev_up[{w},{t}]")
+            if ru_var is not None:
+                reg_up[t] += ru_var.X / model.num_scenarios
+                
+            # 获取下调容量变量
+            rd_var = model.model.getVarByName(f"R_ev_dn[{w},{t}]")
+            if rd_var is not None:
+                reg_dn[t] += rd_var.X / model.num_scenarios
     
-    # 提取能源价格数据
-    prices = np.zeros(24)
-    # 确保dam_price有price列
-    if 'price' in dam_price.columns:
-        # 如果有24个价格点或者整数倍的24，直接取平均
-        if len(dam_price) == 24:
-            prices = dam_price['price'].values
-        elif len(dam_price) % 24 == 0:
-            step = len(dam_price) // 24
-            for h in range(24):
-                prices[h] = dam_price['price'].iloc[h*step:(h+1)*step].mean()
-        else:
-            # 默认情况，简单填充为常数值
-            prices = np.ones(24) * dam_price['price'].mean()
+    # 2. 创建时间轴
+    hours = np.arange(0, 24, 0.25)
     
-    # 创建图形
-    fig, ax1 = plt.subplots(figsize=(10, 6))
+    # 3. 创建图形
+    fig, ax = plt.subplots(figsize=(10, 5))
     
-    # 设置中文字体
-    plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
-    plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+    # 4. 绘制上调和下调曲线
+    # 注意：将下调容量转为负值以便在图中区分上下调
+    ax.step(hours, reg_up, where='post', color='gold', linestyle='-', label=f'{case_name}(RU)')
+    ax.step(hours, -reg_dn, where='post', color='gold', linestyle='--', label=f'{case_name}(RD)')
     
-    # 横坐标范围
-    hours = np.arange(24)
+    # 5. 设置坐标轴和标签
+    ax.set_xlabel('Time/h')
+    ax.set_ylabel('Regulation Bids/MW')
+    ax.set_xlim(0, 24)
+    ax.set_xticks(np.arange(0, 25, 4))
     
-    # 左Y轴 - EV bids
-    color = 'tab:orange'
-    ax1.set_xlabel('时间/h')
-    ax1.set_ylabel('DAM Energy Bids of EVs/MW', color='black')
-    ax1.bar(hours, ev_bids, color=color, alpha=0.7, width=0.8)
-    ax1.tick_params(axis='y', labelcolor='black')
-    ax1.set_xlim(-1, 24)
+    # 设置Y轴范围，确保上下对称
+    y_max = max(max(reg_up), max(reg_dn)) * 1.2
+    ax.set_ylim(-y_max, y_max)
     
-    # 右Y轴 - 能源价格
-    ax2 = ax1.twinx()
-    color = 'tab:blue'
-    ax2.set_ylabel('Energy price/(€/MWh)', color=color)
-    ax2.plot(hours, prices, color=color, marker='s', linewidth=2)
-    ax2.tick_params(axis='y', labelcolor=color)
+    # 添加水平零线
+    ax.axhline(y=0, color='black', linestyle='-', alpha=0.3)
     
-    # 添加图例和标题
-    ax1.text(0.05, 0.95, 'Case 1', transform=ax1.transAxes, 
-            fontsize=12, verticalalignment='top')
+    # 6. 添加图例
+    ax.legend()
     
-    # 添加Energy price图例
-    ax2.plot([], [], color=color, marker='s', linewidth=2, label='Energy price')
-    ax2.legend(loc='upper right')
-    
+    # 7. 保存或显示图像
     plt.tight_layout()
-    
-    # 保存或显示图像
     if output_path:
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
     else:
         plt.show()
     
     plt.close()
-
-
-def main():
-    """
-    独立调用绘图函数的示例
-    """
-    print("请通过main.py运行完整流程。")
-
-
-if __name__ == "__main__":
-    main()

@@ -59,16 +59,24 @@ class DataLoader:
     def load_ev_profiles(self, *, 
                         num_evs: int, # 总EV数量
                         discount: float, # 充电折扣比例
-                    charging_price: float,  #基础充电价格参考了论文
-                        seed: int = None) -> pd.DataFrame:
+                        charging_price: float,  #基础充电价格参考了论文
+                        seed: int = None,
+                        use_timeslot: bool = True) -> pd.DataFrame:
         """生成基准EV数据            
+        Args:
+            num_evs: 总EV数量
+            discount: 充电折扣比例
+            charging_price: 基础充电价格
+            seed: 随机种子
+            use_timeslot: 是否将小时时间转换为15分钟时间槽索引 (默认为True)
+            
         Returns:
             pd.DataFrame: EV参数表，包含以下列：
                 - ev_id: EV编号
                 - ev_type: EV类型（'cc'表示可控，'uc'表示不可控）
                 - charging_type: 充电类型（'day'表示白天充电，'night'表示夜间充电）
-                - arrival_time: 到达时间（小时）
-                - departure_time: 离开时间（小时）
+                - arrival_time: 如果use_timeslot=False，则为到达时间（小时）；否则为时间槽索引（0-95）
+                - departure_time: 如果use_timeslot=False，则为离开时间（小时）；否则为时间槽索引（0-95）
                 - soc_arrival: 到达时初始SOC
                 - soc_departure: 离开时目标SOC
                 - soc_max: 最大SOC
@@ -119,7 +127,7 @@ class DataLoader:
         df['max_charge_power'] = 6.6
         df['efficiency'] = 0.95
         
-        # 为白天充电的EV设置参数
+        # 为白天充电的EV设置参数 (连续小时时间)
         day_mask = df['charging_type'] == 'day'
         num_day_evs = sum(day_mask)
         
@@ -128,7 +136,7 @@ class DataLoader:
         df.loc[day_mask, 'soc_arrival'] = np.random.uniform(0.2, 0.35, num_day_evs)
         df.loc[day_mask, 'soc_departure'] = np.random.uniform(0.85, 0.95, num_day_evs)
         
-        # 为夜间充电的EV设置参数
+        # 为夜间充电的EV设置参数 (连续小时时间)
         night_mask = df['charging_type'] == 'night'
         num_night_evs = sum(night_mask)
         
@@ -143,6 +151,26 @@ class DataLoader:
             charging_price * (1 - discount),
             charging_price
         )
+        
+        # 如果需要，将连续小时时间转换为15分钟时间槽索引 (0-95)
+        if use_timeslot:
+            # 创建源时间列的副本
+            df['hour_arrival'] = df['arrival_time'].copy()
+            df['hour_departure'] = df['departure_time'].copy()
+            
+            # 转换到达时间：小时 → 时间槽索引
+            df['arrival_time'] = (df['arrival_time'] * 4).astype(int)
+            
+            # 特殊处理夜间充电的离开时间：
+            # 对于夜间充电，离开时间小于到达时间，表示跨天，需要加上96来表示第二天
+            df.loc[night_mask, 'departure_time'] = (df.loc[night_mask, 'departure_time'] * 4).astype(int)
+            
+            # 对于白天充电，直接转换
+            df.loc[day_mask, 'departure_time'] = (df.loc[day_mask, 'departure_time'] * 4).astype(int)
+            
+            # 确保所有索引在有效范围内 (0-95)
+            df['arrival_time'] = df['arrival_time'].clip(0, 95)
+            df['departure_time'] = df['departure_time'].clip(0, 95)
         
         return df
 

@@ -32,6 +32,9 @@ class ScenarioGenerator:
         scenarios = []
         num_evs = len(ev_profiles)
         
+        # 检查输入数据是使用时间槽索引还是连续小时
+        use_timeslot = 'hour_arrival' in ev_profiles.columns
+        
         for _ in range(self.num_scenarios):
             scenario = pd.DataFrame()
             scenario['ev_id'] = range(num_evs)
@@ -57,17 +60,37 @@ class ScenarioGenerator:
             scenario['efficiency'] = ev_profiles['efficiency'].values
             scenario['charging_price'] = ev_profiles['charging_price'].values
             
-            # 为白天充电的EV生成场景参数
+            # 为白天充电的EV生成场景参数（连续小时时间）
             scenario.loc[day_mask, 'arrival_time'] = np.random.normal(8.82, 1.08, num_day_evs).clip(7.5, 10.5)
             scenario.loc[day_mask, 'departure_time'] = np.random.normal(18.55, 2.06, num_day_evs).clip(16.0, 21.0)
             scenario.loc[day_mask, 'soc_arrival'] = np.random.uniform(0.2, 0.35, num_day_evs)
             scenario.loc[day_mask, 'soc_departure'] = np.random.uniform(0.85, 0.95, num_day_evs)
             
-            # 为夜间充电的EV生成场景参数
+            # 为夜间充电的EV生成场景参数（连续小时时间）
             scenario.loc[night_mask, 'arrival_time'] = np.random.normal(22.91, 3.2, num_night_evs).clip(20.9, 24.0)
             scenario.loc[night_mask, 'departure_time'] = np.random.normal(8.95, 1.4, num_night_evs).clip(7.0, 10.0)
             scenario.loc[night_mask, 'soc_arrival'] = np.random.uniform(0.2, 0.35, num_night_evs)
             scenario.loc[night_mask, 'soc_departure'] = np.random.uniform(0.85, 0.95, num_night_evs)
+
+            # 如果输入数据使用了时间槽索引，则将连续小时时间转换为15分钟时间槽索引 (0-95)
+            if use_timeslot:
+                # 创建源时间列的副本
+                scenario['hour_arrival'] = scenario['arrival_time'].copy()
+                scenario['hour_departure'] = scenario['departure_time'].copy()
+                
+                # 转换到达时间：小时 → 时间槽索引
+                scenario['arrival_time'] = (scenario['arrival_time'] * 4).astype(int)
+                
+                # 特殊处理夜间充电的离开时间：
+                # 对于夜间充电，离开时间小于到达时间，表示跨天，需要加上96来表示第二天
+                scenario.loc[night_mask, 'departure_time'] = (scenario.loc[night_mask, 'departure_time'] * 4).astype(int)
+                
+                # 对于白天充电，直接转换
+                scenario.loc[day_mask, 'departure_time'] = (scenario.loc[day_mask, 'departure_time'] * 4).astype(int)
+                
+                # 确保所有索引在有效范围内 (0-95)
+                scenario['arrival_time'] = scenario['arrival_time'].clip(0, 95)
+                scenario['departure_time'] = scenario['departure_time'].clip(0, 95)
 
             scenarios.append(scenario)
         return scenarios
