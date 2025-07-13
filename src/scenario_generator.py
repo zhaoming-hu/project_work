@@ -5,8 +5,8 @@ from typing import Dict, List, Tuple
 
 class ScenarioGenerator:
     def __init__(self, *, 
-                 num_scenarios: int = 1000,
-                 num_clusters: int = 48,
+                 num_scenarios: int,
+                 num_clusters: int,
                  seed: int = None):
         """初始化场景生成器
         
@@ -123,6 +123,7 @@ class ScenarioGenerator:
             })
             scenarios.append(scenario)
         return scenarios, K_up, K_dn
+
     
     def reduce_scenarios(self, *,
                         ev_scenarios: List[pd.DataFrame],

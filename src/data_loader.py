@@ -57,9 +57,9 @@ class DataLoader:
 
 
     def load_ev_profiles(self, *, 
-                        num_evs: int = 400,
-                        discount: float = 0.2, 
-                        charging_price: float = 180,  #这个基础充电价格和折扣比例参考了论文
+                        num_evs: int,
+                        discount: float, 
+                        charging_price: float,  #这个基础充电价格和折扣比例参考了论文
                         seed: int = None) -> pd.DataFrame:
         """生成基准EV数据
         

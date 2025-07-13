@@ -1,22 +1,21 @@
 import pandas as pd
 from data_loader import DataLoader
 from scenario_generator import ScenarioGenerator
-from optimization_model import V2GOptimizationModel
+from optimization_model import V2GOptimizationModelCase1
+from optimization_model import V2GOptimizationModelCase3
 
 def main():
     # 1. 加载基础数据
     data_loader = DataLoader(data_dir="../data")
-    ev_profiles = data_loader.load_ev_profiles(num_evs=400, discount=0.2, charging_price=180, seed=42)
+    ev_profiles = data_loader.load_ev_profiles(num_evs=2, discount=0.2, charging_price=180, seed=42)
     rtm_price = data_loader.load_rtm_price()
     dam_price = data_loader.load_dam_price()
-
-
     agc_signal = data_loader.load_agc_signal()
     capacity_price = data_loader.load_capacity_price()
     balancing_price = data_loader.load_balancing_energy_and_price()
 
     # 3. 生成初始场景
-    scenario_gen = ScenarioGenerator(num_scenarios=1000, num_clusters=48, seed=42)
+    scenario_gen = ScenarioGenerator(num_scenarios=4, num_clusters=2, seed=42)
     ev_scenarios = scenario_gen.generate_ev_scenarios(ev_profiles=ev_profiles)
     price_scenarios = scenario_gen.generate_price_scenarios(
         dam_prices=dam_price,
@@ -37,7 +36,7 @@ def main():
     )
 
     # 5. 构建并求解优化模型
-    model = V2GOptimizationModel(
+    model = V2GOptimizationModelCase1(
         reduced_ev_scenarios=reduced_ev_scenarios,
         reduced_price_scenarios=reduced_price_scenarios,
         reduced_agc_scenarios=reduced_agc_scenarios,
