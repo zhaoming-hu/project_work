@@ -21,25 +21,53 @@ class ScenarioGenerator:
             np.random.seed(seed)
             
     def generate_ev_scenarios(self, *, ev_profiles: pd.DataFrame) -> List[pd.DataFrame]:
-        """生成EV场景，每个场景都独立采样，符合原始分布"""
+        """生成EV场景，每个场景都独立采样，符合原始分布
+        
+        Args:
+            ev_profiles: 基准EV数据，包含充电类型（day/night）
+            
+        Returns:
+            List[pd.DataFrame]: EV场景列表
+        """
         scenarios = []
         num_evs = len(ev_profiles)
+        
         for _ in range(self.num_scenarios):
             scenario = pd.DataFrame()
             scenario['ev_id'] = range(num_evs)
             scenario['ev_type'] = ev_profiles['ev_type'].values
-
-            # 按原始分布采样
-            scenario['arrival_time'] = np.random.normal(ev_profiles['arrival_time'].mean(), ev_profiles['arrival_time'].std(), num_evs).clip(7.5, 10.5)   #np.random.normal(均值, 标准差, 数量)
-            scenario['departure_time'] = np.random.normal(ev_profiles['departure_time'].mean(), ev_profiles['departure_time'].std(), num_evs).clip(16.0, 21.0)
-            scenario['soc_arrival'] = np.random.uniform(ev_profiles['soc_arrival'].min(), ev_profiles['soc_arrival'].max(), num_evs)  #np.random.uniform(最小值, 最大值, 数量)
-            scenario['soc_departure'] = np.random.uniform(ev_profiles['soc_departure'].min(), ev_profiles['soc_departure'].max(), num_evs)
+            scenario['charging_type'] = ev_profiles['charging_type'].values
+            
+            # 分别处理白天和夜间充电的EV
+            day_mask = scenario['charging_type'] == 'day'
+            night_mask = scenario['charging_type'] == 'night'
+            
+            num_day_evs = sum(day_mask)
+            num_night_evs = sum(night_mask)
+            
+            # 初始化所有EV的参数
+            scenario['arrival_time'] = 0.0
+            scenario['departure_time'] = 0.0
+            scenario['soc_arrival'] = 0.0
+            scenario['soc_departure'] = 0.0
             scenario['soc_max'] = ev_profiles['soc_max'].values
             scenario['soc_min'] = ev_profiles['soc_min'].values
             scenario['battery_capacity'] = ev_profiles['battery_capacity'].values
             scenario['max_charge_power'] = ev_profiles['max_charge_power'].values
             scenario['efficiency'] = ev_profiles['efficiency'].values
             scenario['charging_price'] = ev_profiles['charging_price'].values
+            
+            # 为白天充电的EV生成场景参数
+            scenario.loc[day_mask, 'arrival_time'] = np.random.normal(8.82, 1.08, num_day_evs).clip(7.5, 10.5)
+            scenario.loc[day_mask, 'departure_time'] = np.random.normal(18.55, 2.06, num_day_evs).clip(16.0, 21.0)
+            scenario.loc[day_mask, 'soc_arrival'] = np.random.uniform(0.2, 0.35, num_day_evs)
+            scenario.loc[day_mask, 'soc_departure'] = np.random.uniform(0.85, 0.95, num_day_evs)
+            
+            # 为夜间充电的EV生成场景参数
+            scenario.loc[night_mask, 'arrival_time'] = np.random.normal(22.91, 3.2, num_night_evs).clip(20.9, 24.0)
+            scenario.loc[night_mask, 'departure_time'] = np.random.normal(8.95, 1.4, num_night_evs).clip(7.0, 10.0)
+            scenario.loc[night_mask, 'soc_arrival'] = np.random.uniform(0.2, 0.35, num_night_evs)
+            scenario.loc[night_mask, 'soc_departure'] = np.random.uniform(0.85, 0.95, num_night_evs)
 
             scenarios.append(scenario)
         return scenarios

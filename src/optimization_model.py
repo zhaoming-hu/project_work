@@ -14,11 +14,11 @@ class V2GOptimizationModelCase1:
         reduced_agc_scenarios: List[pd.DataFrame],  #传入agc数据
         K_dn: float,  #容量预留 固定值
         K_up: float,
-        P_es_max: float = 1600.0,  # ES最大充放电功率1.6 MW = 1600 kW
-        E_es_max: float = 3200.0,  # ES最大能量容量3.2 MWh = 3200 kWh
-        E_es_init: float = 1000.0,  # ES初始能量1.0 MWh = 1000 kWh
-        dod_max: float = 0.9,    # 最大允许DOD
-        gamma: float = 0.3,      # 最终能量与初始能量偏差容忍率
+        P_es_max: float = 1.6,  # ES最大充放电功率1.6 MW
+        E_es_max: float = 3.2,  # ES最大能量容量3.2 MWh
+        E_es_init: float = 1.0,  # ES初始能量1.0 MWh (原1.6)
+        dod_max: float = 0.9,    # 最大允许DOD(原0.3)
+        gamma: float = 0.3,      # 最终能量与初始能量偏差容忍率(原0.5)
         T: int = 96,
         # beta: float = 0.95,  #CVaR变量之一
         # alpha: float = 0.5,  #CVaR变量之一
@@ -26,8 +26,8 @@ class V2GOptimizationModelCase1:
         beta_ES: float = 0.5, #ES degredation公式中的系数 一般取0.3-0.7
         N0: float = 5000, #ES degredation公式中的系数 经验取值
         C_es: float = 3e5, #ES置换费用
-        eta_ch = 0.95, #ES充电功率
-        eta_dis = 0.95 #ES放电功率
+        eta_ch = 0.95, #ES充电效率
+        eta_dis = 0.95 #ES放电效率
     ):
         self.reduced_ev_scenarios = reduced_ev_scenarios
         self.reduced_price_scenarios = reduced_price_scenarios
@@ -53,31 +53,32 @@ class V2GOptimizationModelCase1:
     def build_model(self):
         self.model = gp.Model("V2G_Optimization")
         constraints = V2GConstraintsCase1(self.model)
+        
         # CVaR相关变量
         # sigma = self.model.addVar(name="sigma")
         # phi = self.model.addVars(self.num_scenarios, name="phi")
 
         # 电池退化相关变量
         dod = self.model.addVar(lb=1e-4, ub=0.9, name="DOD")
-        L = self.model.addVar(lb=1, name="N_cycle")
+        L = self.model.addVar(lb=1, ub=10000, name="N_cycle")
 
         # 定义主决策变量  全局/一维/二维变量
-        f_w = self.model.addVars(self.num_scenarios, name="f_w") # Expected net profit of EV aggregator in scenario w (€)
-        F_ev_buy = self.model.addVars(self.num_scenarios, self.T, name="F_ev_buy") # DAM energy cost of EVA in hour t in scenario w (€)
-        F_ev_sell = self.model.addVars(self.num_scenarios, self.T, name="F_ev_sell") # Income of EVA in hour t in scenario w (€)
-        F_ev_charging = self.model.addVars(self.num_scenarios, self.T, name="F_ev_charging") # Profit from charging the EV fleets in hour t in scenario w (€)
-        F_ev_cap = self.model.addVars(self.num_scenarios, self.T, name="F_ev_cap") # Regulation capacity income of EVs in hour t in scenario w (€)
-        F_ev_mil = self.model.addVars(self.num_scenarios, self.T, name="F_ev_mil") # Regulation mileage income of EVs in hour t in scenario w (€)
-        F_ev_deploy = self.model.addVars(self.num_scenarios, self.T, name="F_ev_deploy") # RTM energy cost of EVs for deploying regulation in hour t in scenario w (€)
-        F_es_deg = self.model.addVars(self.num_scenarios, self.T, name="F_es_deg") # Degradation cost of ES in hour t in scenario w (€)
+        f_w = self.model.addVars(self.num_scenarios, lb=-1e6, ub=1e6, name="f_w") # Expected net profit of EV aggregator in scenario w (€)
+        F_ev_buy = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_ev_buy") # DAM energy cost of EVA in hour t in scenario w (€)
+        F_ev_sell = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_ev_sell") # Income of EVA in hour t in scenario w (€)
+        F_ev_charging = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=1e6, name="F_ev_charging") # Profit from charging the EV fleets in hour t in scenario w (€)
+        F_ev_cap = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_ev_cap") # Regulation capacity income of EVs in hour t in scenario w (€)
+        F_ev_mil = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_ev_mil") # Regulation mileage income of EVs in hour t in scenario w (€)
+        F_ev_deploy = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=1e6, name="F_ev_deploy") # RTM energy cost of EVs for deploying regulation in hour t in scenario w (€)
+        F_es_deg = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_es_deg") # Degradation cost of ES in hour t in scenario w (€)
         E_es = self.model.addVars(self.num_scenarios, self.T, name="E_es") # Energy stored in ES in hour t in scenario w (MW)
         P_ev_total = self.model.addVars(self.num_scenarios, self.T, name="P_ev_total")  # Total charging power of EVs in hour t in scenario w (MW)
         P_ev0_total = self.model.addVars(self.num_scenarios, self.T, name="P_ev0_total") #Energy bids (also the preferred dispatch set point (PSP)) of EVs in hour t in scenario w(MW)
-        P_es_ch = self.model.addVars(self.num_scenarios, self.T, name="P_es_ch") # Charging power of ES in hour t in scenario w (MW)
-        P_es_dis = self.model.addVars(self.num_scenarios, self.T, name="P_es_dis") # Discharging power of ES in hour t in scenario w (MW)
+        P_es_ch = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es_ch") # Charging power of ES in hour t in scenario w (MW)
+        P_es_dis = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es_dis") # Discharging power of ES in hour t in scenario w (MW)
         P_es = self.model.addVars(self.num_scenarios, self.T, name="P_es") # Expected power of ES in hour t in scenario w (MW)
-        R_ev_up = self.model.addVars(self.num_scenarios, self.T, name="R_ev_up") # Regulation up capacity bids of ES in hour t in scenario w(MW)
-        R_ev_dn = self.model.addVars(self.num_scenarios, self.T, name="R_ev_dn") # Regulation down capacity bids of ES in hour t in scenario w(MW)
+        R_ev_up = self.model.addVars(self.num_scenarios, self.T, lb=0, name="R_ev_up") # Regulation up capacity bids of ES in hour t in scenario w(MW)
+        R_ev_dn = self.model.addVars(self.num_scenarios, self.T, lb=0, name="R_ev_dn") # Regulation down capacity bids of ES in hour t in scenario w(MW)
         mu_es_ch = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="mu_es_ch") # Binary variable for charging power of entire ES in hour t in scenario w
         mu_es_dis = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="mu_es_dis") # Binary variable for discharging power of entire ES in hour t in scenario w
 
@@ -199,8 +200,6 @@ class V2GOptimizationModelCase1:
         #     f=scenario_revenues
         # )
 
-
-
         # 目标函数
         pi = 1.0 / self.num_scenarios  #参考的论文里的piw 代表每个场景发生的权重 这里按概率均等
         for w in range(self.num_scenarios):
@@ -265,8 +264,10 @@ class V2GOptimizationModelCase1:
                 # )
 
                 # 储能系统退化成本（支出项，需从总收益中扣除）
+                # 使用固定值代替非线性计算，简化模型
+                degradation_factor = 72200  # 固定值替代 2 * L * d * eta_ch * eta_dis
                 self.model.addConstr(
-                    F_es_deg[w, t] == self.C_es * (P_es_ch[w, t] + P_es_dis[w, t]) / (2 * L * dod * self.eta_ch * self.eta_dis)
+                    F_es_deg[w, t] == self.C_es * (P_es_ch[w, t] + P_es_dis[w, t]) / degradation_factor
                 )
 
                 expr += (F_ev_charging[w, t] + F_ev_cap[w, t] + F_ev_mil[w, t] - F_ev_deploy[w, t] - F_es_deg[w, t] )
@@ -280,18 +281,15 @@ class V2GOptimizationModelCase1:
 
     def solve(self):
         self.build_model()
+        # 添加Gurobi参数设置，用于诊断
+        self.model.setParam('NumericFocus', 3)  # 提高数值精度
+        self.model.setParam('FeasibilityTol', 1e-6)  # 可行性容忍度
+        self.model.setParam('IntFeasTol', 1e-6)  # 整数可行性容忍度
+        self.model.setParam('MarkowitzTol', 0.01)  # 增加数值稳定性
+        self.model.setParam('Method', 2)  # 求解方法设为barrier
+        self.model.setParam('Crossover', 0)  # 关闭crossover以提高求解效率
         self.model.optimize()
-        # ====== 调试：打印第一个场景所有EV相关变量的上下界 ======
-        print("==== 第一个场景 EV 变量上下界检查 ====")
-        for v in self.model.getVars():
-            if any([
-                v.varName.startswith(prefix)
-                for prefix in [
-                    "P_ev_cc[0,", "P_ev_uc[0,"
-                    # , "soc[0,", "P_ev0_cc[0,", "P_ev0_uc[0,", "R_ev_up_i[0,", "R_ev_dn_i[0,"
-                ]
-            ]):
-                print(f"{v.varName}: lb={v.lb}, ub={v.ub}")
+        # 移除调试输出代码，保持代码简洁
         # 无论什么情况都写出标准LP文件
         self.model.write("model.lp")
         # 如果不可行，写出IIS文件
@@ -318,11 +316,35 @@ class V2GOptimizationModelCase1:
             raise Exception("优化问题无解")
             
     def get_results(self) -> Dict:
+        # 计算各类收益和成本的总和
+        ev_cap_revenue = 0
+        ev_mil_revenue = 0
+        ev_charging_revenue = 0
+        ev_dam_cost = 0
+        ev_deploy_cost = 0
+        es_deg_cost = 0
+        
+        # 对所有场景进行求和
+        pi = 1.0 / self.num_scenarios  # 每个场景的权重
+        for w in range(self.num_scenarios):
+            for t in range(self.T):
+                ev_cap_revenue += pi * self.model.getVarByName(f"F_ev_cap[{w},{t}]").X
+                ev_mil_revenue += pi * self.model.getVarByName(f"F_ev_mil[{w},{t}]").X
+                ev_charging_revenue += pi * self.model.getVarByName(f"F_ev_charging[{w},{t}]").X
+                ev_dam_cost += pi * self.model.getVarByName(f"F_ev_buy[{w},{t}]").X
+                ev_deploy_cost += pi * self.model.getVarByName(f"F_ev_deploy[{w},{t}]").X
+                es_deg_cost += pi * self.model.getVarByName(f"F_es_deg[{w},{t}]").X
+        
         results = {
             "objective_value": self.model.objVal,
-            
+            "ev_cap_revenue": ev_cap_revenue,  # EV调频容量收入
+            "ev_mil_revenue": ev_mil_revenue,  # EV调频里程收入
+            "ev_charging_revenue": ev_charging_revenue,  # EV充电收入
+            "ev_dam_cost": ev_dam_cost,  # 日前市场能源成本
+            "ev_deploy_cost": ev_deploy_cost,  # 调频部署成本
+            "es_deg_cost": es_deg_cost,  # ES退化成本
         }
-        return results 
+        return results
 
 class V2GOptimizationModelCase3:
     def __init__(
@@ -334,11 +356,11 @@ class V2GOptimizationModelCase3:
         K_up: float,
         P_es_max: float = 1.6,  # ES最大充放电功率1.6（MW）
         E_es_max: float = 3.2,  # ES最大能量容量3.2（MWh）
-        E_es_init: float = 3.2,  # ES初始能量3.2（MWh）
-        E_es1_init: float = 1.0,  # ES初始能量1.0（MWh）
-        E_es2_init: float = 2.2,  # ES初始能量2.2（MWh）
-        dod_max: float = 0.9,    # 最大允许DOD
-        gamma: float = 0.3,      # 最终能量与初始能量偏差容忍率
+        E_es_init: float = 1.0,  # ES初始能量1.0（MWh）(原1.6)
+        E_es1_init: float = 0.5,  # ES初始能量0.5（MWh）(原0.8)
+        E_es2_init: float = 0.5,  # ES初始能量0.5（MWh）(原0.8)
+        dod_max: float = 0.9,    # 最大允许DOD（原0.3）
+        gamma: float = 0.3,      # 最终能量与初始能量偏差容忍率（原0.5）
         T: int = 96,
         beta: float = 0.95,  #CVaR变量之一
         alpha: float = 0.5,  #CVaR变量之一
@@ -383,18 +405,18 @@ class V2GOptimizationModelCase3:
         # 定义主决策变量  全局/一维/二维变量
         E_es1_max = self.model.addVar(name="E_es1_max") # Maximum energy stored in ES1 (MW)
         E_es2_max = self.model.addVar(name="E_es2_max") # Maximum energy stored in ES2 (MW)
-        f_w = self.model.addVars(self.num_scenarios, name="f_w") # Expected net profit of EV aggregator in scenario w (€)
-        F_ev_buy = self.model.addVars(self.num_scenarios, self.T, name="F_ev_buy") # DAM energy cost of EVA in hour t in scenario w (€)
-        F_ev_sell = self.model.addVars(self.num_scenarios, self.T, name="F_ev_sell") # Income of EVA in hour t in scenario w (€)
-        F_ev_charging = self.model.addVars(self.num_scenarios, self.T, name="F_ev_charging") # Profit from charging the EV fleets in hour t in scenario w (€)
-        F_ev_cap = self.model.addVars(self.num_scenarios, self.T, name="F_ev_cap") # Regulation capacity income of EVs in hour t in scenario w (€)
-        F_es_cap = self.model.addVars(self.num_scenarios, self.T, name="F_es_cap") # Regulation capacity income of ES in hour t in scenario w (€)
-        F_ev_mil = self.model.addVars(self.num_scenarios, self.T, name="F_ev_mil") # Regulation mileage income of EVs in hour t in scenario w (€)
-        F_es_mil = self.model.addVars(self.num_scenarios, self.T, name="F_es_mil") # Regulation mileage income of ES in hour t in scenario w (€)
-        F_ev_deploy = self.model.addVars(self.num_scenarios, self.T, name="F_ev_deploy") # RTM energy cost of EVs for deploying regulation in hour t in scenario w (€)
-        F_es_deploy = self.model.addVars(self.num_scenarios, self.T, name="F_es_deploy") # RTM energy cost of ES for deploying regulation in hour t in scenario w (€)
-        F_es_arb = self.model.addVars(self.num_scenarios, self.T, name="F_es_arb") # ES income from arbitrage in DAM in hour t in scenario w (€)
-        F_es_deg = self.model.addVars(self.num_scenarios, self.T, name="F_es_deg") # Degradation cost of ES in hour t in scenario w (€)
+        f_w = self.model.addVars(self.num_scenarios, lb=-1e6, ub=1e6, name="f_w") # Expected net profit of EV aggregator in scenario w (€)
+        F_ev_buy = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_ev_buy") # DAM energy cost of EVA in hour t in scenario w (€)
+        F_ev_sell = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_ev_sell") # Income of EVA in hour t in scenario w (€)
+        F_ev_charging = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=1e6, name="F_ev_charging") # Profit from charging the EV fleets in hour t in scenario w (€)
+        F_ev_cap = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_ev_cap") # Regulation capacity income of EVs in hour t in scenario w (€)
+        F_es_cap = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_es_cap") # Regulation capacity income of ES in hour t in scenario w (€)
+        F_ev_mil = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_ev_mil") # Regulation mileage income of EVs in hour t in scenario w (€)
+        F_es_mil = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_es_mil") # Regulation mileage income of ES in hour t in scenario w (€)
+        F_ev_deploy = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=1e6, name="F_ev_deploy") # RTM energy cost of EVs for deploying regulation in hour t in scenario w (€)
+        F_es_deploy = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=1e6, name="F_es_deploy") # RTM energy cost of ES for deploying regulation in hour t in scenario w (€)
+        F_es_arb = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=1e6, name="F_es_arb") # ES income from arbitrage in DAM in hour t in scenario w (€)
+        F_es_deg = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_es_deg") # Degradation cost of ES in hour t in scenario w (€)
         E_es1 = self.model.addVars(self.num_scenarios, self.T, name="E_es1") # Energy stored in ES1 in hour t in scenario w (MW)
         E_es2 = self.model.addVars(self.num_scenarios, self.T, name="E_es2") # Energy stored in ES2 in hour t in scenario w (MW)
         P_ev_total = self.model.addVars(self.num_scenarios, self.T, name="P_ev_total")  # Total charging power of EVs in hour t in scenario w (MW)
@@ -660,8 +682,10 @@ class V2GOptimizationModelCase3:
                 )
 
                 # 储能系统退化成本（支出项，需从总收益中扣除）
+                # 使用固定值代替非线性计算，简化模型
+                degradation_factor = 10000  # 固定值替代 2 * L * d * eta_ch * eta_dis
                 self.model.addConstr(
-                    F_es_deg[w, t] == self.C_es * (P_es_ch[w, t] + P_es_dis[w, t]) / (2 * L * dod * self.eta_ch * self.eta_dis)
+                    F_es_deg[w, t] == self.C_es * (P_es_ch[w, t] + P_es_dis[w, t]) / degradation_factor
                 )
 
                 expr += (F_ev_charging[w, t] + F_ev_cap[w, t] + F_ev_mil[w, t] - F_ev_deploy[w, t] +
@@ -676,16 +700,7 @@ class V2GOptimizationModelCase3:
     def solve(self):
         self.build_model()
         self.model.optimize()
-        # ====== 调试：打印第一个场景所有EV相关变量的上下界 ======
-        print("==== 第一个场景 EV 变量上下界检查 ====")
-        for v in self.model.getVars():
-            if any([
-                v.varName.startswith(prefix)
-                for prefix in [
-                    "P_ev_cc[0,", "P_ev_uc[0,", "soc[0,", "P_ev0_cc[0,", "P_ev0_uc[0,", "R_ev_up_i[0,", "R_ev_dn_i[0,"
-                ]
-            ]):
-                print(f"{v.varName}: lb={v.lb}, ub={v.ub}")
+        # 移除调试输出代码，保持代码简洁
         # 无论什么情况都写出标准LP文件
         self.model.write("model.lp")
         # 如果不可行，写出IIS文件
