@@ -55,8 +55,8 @@ class ScenarioGenerator:
             scenario['soc_departure'] = 0.0
             scenario['soc_max'] = ev_profiles['soc_max'].values
             scenario['soc_min'] = ev_profiles['soc_min'].values
-            scenario['battery_capacity'] = ev_profiles['battery_capacity'].values
-            scenario['max_charge_power'] = ev_profiles['max_charge_power'].values
+            scenario['battery_capacity'] = ev_profiles['battery_capacity'].values  # 已转换为MWh
+            scenario['max_charge_power'] = ev_profiles['max_charge_power'].values  # 已转换为MW
             scenario['efficiency'] = ev_profiles['efficiency'].values
             scenario['charging_price'] = ev_profiles['charging_price'].values
             

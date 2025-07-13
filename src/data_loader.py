@@ -81,10 +81,10 @@ class DataLoader:
                 - soc_departure: 离开时目标SOC
                 - soc_max: 最大SOC
                 - soc_min: 最小SOC
-                - battery_capacity: 电池容量（kWh）
-                - max_charge_power: 最大充电功率（kW）
+                - battery_capacity: 电池容量（MWh）
+                - max_charge_power: 最大充电功率（MW）
                 - efficiency: 充电效率
-                - charging_price: 充电价格（$/MWh）
+                - charging_price: 充电价格（€/MWh）
         """
         if seed is not None:
             np.random.seed(seed)
@@ -123,8 +123,8 @@ class DataLoader:
         df['soc_departure'] = 0.0
         df['soc_max'] = 0.95
         df['soc_min'] = 0.1
-        df['battery_capacity'] = 28.0
-        df['max_charge_power'] = 6.6
+        df['battery_capacity'] = 0.028  # 将28.0 kWh转换为0.028 MWh
+        df['max_charge_power'] = 0.0066  # 将6.6 kW转换为0.0066 MW
         df['efficiency'] = 0.95
         
         # 为白天充电的EV设置参数 (连续小时时间)

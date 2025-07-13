@@ -16,7 +16,7 @@ class V2GOptimizationModelCase1:
         K_up: float,
         P_es_max: float = 1.6,  # ES最大充放电功率1.6 MW
         E_es_max: float = 3.2,  # ES最大能量容量3.2 MWh
-        E_es_init: float = 1.0,  # ES初始能量1.0 MWh (原1.6)
+        E_es_init: float = 1.0,  # ES初始能量1.0 MWh
         dod_max: float = 0.9,    # 最大允许DOD(原0.3)
         gamma: float = 0.3,      # 最终能量与初始能量偏差容忍率(原0.5)
         T: int = 96,
@@ -95,8 +95,8 @@ class V2GOptimizationModelCase1:
                 for n in range(N_uc):
                     keys_uc.append((w, t, n))
         # 用keys方式创建变量
-        P_ev_cc = self.model.addVars(keys_cc, lb=0, ub=6.6, name="P_ev_cc") # Charging power of cc individual EV i in hour t in scenario w (MW)
-        P_ev_uc = self.model.addVars(keys_uc, lb=0, ub=6.6, name="P_ev_uc") # Charging power of uc individual EV i in hour t in scenario w (MW)
+        P_ev_cc = self.model.addVars(keys_cc, lb=0, ub=0.0066, name="P_ev_cc") # Charging power of cc individual EV i in hour t in scenario w (MW)
+        P_ev_uc = self.model.addVars(keys_uc, lb=0, ub=0.0066, name="P_ev_uc") # Charging power of uc individual EV i in hour t in scenario w (MW)
         P_ev0_cc = self.model.addVars(keys_cc, name="P_ev0_cc") # PSP of cc individual EV i in hour t in scenario w (MW)
         P_ev0_uc = self.model.addVars(keys_uc, name="P_ev0_uc") #PSP of uc individual EV i in hour t in scenario w (MW)
         R_ev_up_i = self.model.addVars(keys_cc, name="R_ev_up_i") # Upward regulation capacity provided by controllable individual EV i in hour t in scenario w (MW)
@@ -456,8 +456,8 @@ class V2GOptimizationModelCase3:
                 for n in range(N_uc):
                     keys_uc.append((w, t, n))
         # 用keys方式创建变量
-        P_ev_cc = self.model.addVars(keys_cc, name="P_ev_cc") # Charging power of cc individual EV i in hour t in scenario w (MW)
-        P_ev_uc = self.model.addVars(keys_uc, name="P_ev_uc") # Charging power of uc individual EV i in hour t in scenario w (MW)
+        P_ev_cc = self.model.addVars(keys_cc, lb=0, ub=0.0066, name="P_ev_cc") # Charging power of cc individual EV i in hour t in scenario w (MW)
+        P_ev_uc = self.model.addVars(keys_uc, lb=0, ub=0.0066, name="P_ev_uc") # Charging power of uc individual EV i in hour t in scenario w (MW)
         P_ev0_cc = self.model.addVars(keys_cc, name="P_ev0_cc") # PSP of cc individual EV i in hour t in scenario w (MW)
         P_ev0_uc = self.model.addVars(keys_uc, name="P_ev0_uc") #P SP of ucc individual EV i in hour t in scenario w (MW)
         R_ev_up_i = self.model.addVars(keys_cc, name="R_ev_up_i") # Upward regulation capacity provided by controllable individual EV i in hour t in scenario w (MW)

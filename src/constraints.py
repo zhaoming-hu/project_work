@@ -25,8 +25,8 @@ class V2GConstraintsCase1:
             Ta_i = row["arrival_time"]
             Sa_i = row["soc_arrival"]
             Sd_i = row["soc_departure"]
-            Eev_i = row["battery_capacity"]
-            Pmax = row["max_charge_power"]
+            Eev_i = row["battery_capacity"]  # 现在是MWh
+            Pmax = row["max_charge_power"]  # 现在是MW
             eta_ev = row["efficiency"]
             
             # 计算 Tk_i,w
@@ -73,8 +73,8 @@ class V2GConstraintsCase1:
                 Sd = row["soc_departure"]
                 Smax = row["soc_max"]
                 # Smin = row["soc_min"]
-                Eev = row["battery_capacity"]
-                Pmax = row["max_charge_power"]
+                Eev = row["battery_capacity"]  # 现在是MWh
+                Pmax = row["max_charge_power"]  # 现在是MW
                 eta = row["efficiency"]
                 
                 # 处理夜间充电跨天的情况
@@ -145,7 +145,7 @@ class V2GConstraintsCase1:
                 row = cc_evs.iloc[n]
                 Ta = int(row["arrival_time"])
                 Td = int(row["departure_time"])
-                Eev = row["battery_capacity"]
+                Eev = row["battery_capacity"]  # 现在是MWh
                 
                 # 处理夜间充电跨天的情况
                 is_overnight = row["charging_type"] == "night" if "charging_type" in row else False
@@ -346,8 +346,8 @@ class V2GConstraintsCase3:
             Ta_i = row["arrival_time"]
             Sa_i = row["soc_arrival"]
             Sd_i = row["soc_departure"]
-            Eev_i = row["battery_capacity"]
-            Pmax = row["max_charge_power"]
+            Eev_i = row["battery_capacity"]  # 现在是MWh
+            Pmax = row["max_charge_power"]  # 现在是MW
             eta_ev = row["efficiency"]
             
             # 计算 Tk_i,w
@@ -393,8 +393,8 @@ class V2GConstraintsCase3:
                 Sd = row["soc_departure"]
                 Smax = row["soc_max"]
                 Smin = row["soc_min"]
-                Eev = row["battery_capacity"]
-                Pmax = row["max_charge_power"]
+                Eev = row["battery_capacity"]  # 现在是MWh
+                Pmax = row["max_charge_power"]  # 现在是MW
                 eta = row["efficiency"]
                 if Ta <= t <= Td:
                     self.model.addConstr(P_ev0_cc[scenario_idx, t, n] >= 0)
@@ -425,7 +425,7 @@ class V2GConstraintsCase3:
                 row = cc_evs.iloc[n]
                 Ta = int(row["arrival_time"])
                 Td = int(row["departure_time"])
-                Eev = row["battery_capacity"]
+                Eev = row["battery_capacity"]  # 现在是MWh
                 for t in range(Ta, Td-1):
                     self.model.addConstr(
                         soc[scenario_idx, t, n] <= Smax - K_dn * R_ev_dn_i[scenario_idx, t+1, n] / Eev
