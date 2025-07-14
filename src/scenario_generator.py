@@ -133,47 +133,85 @@ class ScenarioGenerator:
     def generate_agc_scenarios(self, *,
                              agc_signals: pd.DataFrame,
                              T: int,
-                             resample_freq: str = "15min") -> Tuple[List[pd.DataFrame], float, float]:
+                             resample_freq: str = "15min") -> Tuple[List[pd.DataFrame], pd.DataFrame]:
         """
-        生成AGC信号场景，先分组采样，再生成带噪声场景，并返回K_up和K_dn
+        生成AGC信号场景，并为每个时间段计算单独的K_up和K_dn容量预留值
+        
         Args:
             agc_signals: 原始AGC信号数据（含timeslot, agc_delta）
             T: 时间步数
             resample_freq: 重采样频率，默认15分钟
+            
         Returns:
             List[pd.DataFrame]: AGC信号场景列表
-            float: K_up
-            float: K_dn
+            pd.DataFrame: 包含每个时间段的K_up和K_dn值
         """
-        # 先分组采样，分别对正负分开求均值
+        # 辅助函数：计算正/负值的均值
         def pos_mean(x):
             return x[x > 0].mean() if (x > 0).any() else 0.0
         def neg_mean(x):
             return -x[x < 0].mean() if (x < 0).any() else 0.0
-
-        grouped = agc_signals.groupby(pd.Grouper(key="timeslot", freq=resample_freq))["agc_delta"].agg(
+        
+        # 确保timeslot列是datetime类型
+        if not pd.api.types.is_datetime64_any_dtype(agc_signals['timeslot']):
+            agc_signals['timeslot'] = pd.to_datetime(agc_signals['timeslot'])
+            
+        # 添加日期和每日时间段索引列
+        agc_signals['date'] = agc_signals['timeslot'].dt.date
+        agc_signals['time_of_day'] = agc_signals['timeslot'].dt.hour * 4 + agc_signals['timeslot'].dt.minute // 15
+        
+        # 按日期和时间段分组，计算每组的平均正负值
+        daily_stats = agc_signals.groupby(['date', 'time_of_day'])['agc_delta'].agg(
+            agc_up=pos_mean,
+            agc_dn=neg_mean
+        ).reset_index()
+        
+        # 将agc_up和agc_dn值乘以0.25（15分钟）
+        daily_stats['agc_up'] = daily_stats['agc_up'] * 0.25
+        daily_stats['agc_dn'] = daily_stats['agc_dn'] * 0.25
+        
+        # 对每个时间段，找到30天中的最大值
+        timeslot_max = daily_stats.groupby('time_of_day').agg({
+            'agc_up': 'max',
+            'agc_dn': 'max'
+        }).reset_index()
+        
+        # 确保有96个时间段的数据
+        all_timeslots = pd.DataFrame({'time_of_day': range(T)})
+        timeslot_max = pd.merge(all_timeslots, timeslot_max, on='time_of_day', how='left').fillna(0)
+        
+        # K_up和K_dn现在是每个时间段的数组
+        K_up_values = timeslot_max['agc_up'].values
+        K_dn_values = timeslot_max['agc_dn'].values
+        
+        # 计算基础场景值（每个时间段的平均值）
+        base_scenario = agc_signals.groupby(pd.Grouper(key="timeslot", freq=resample_freq))["agc_delta"].agg(
             l_agc_up=pos_mean,
             l_agc_dn=neg_mean
         )
-        grouped = grouped.iloc[:T].reset_index(drop=True)
-        grouped["l_agc_up"] = grouped["l_agc_up"] * 0.25
-        grouped["l_agc_dn"] = grouped["l_agc_dn"] * 0.25  #按照理解 agc数据在每秒都应该是确定的要么正要么负 这里之所以两个是因为15min内正负都有
-
-        # 计算K_up和K_dn
-        K_up = grouped["l_agc_up"].max()
-        K_dn = grouped["l_agc_dn"].max()
-
+        base_scenario = base_scenario.iloc[:T].reset_index(drop=True)
+        base_scenario["l_agc_up"] = base_scenario["l_agc_up"] * 0.25
+        base_scenario["l_agc_dn"] = base_scenario["l_agc_dn"] * 0.25
+        
         # 生成带噪声的场景
         scenarios = []
         for _ in range(self.num_scenarios):
             agc_up_noise = np.random.normal(1, 0.1, T)
             agc_dn_noise = np.random.normal(1, 0.1, T)
             scenario = pd.DataFrame({
-                'agc_up': grouped['l_agc_up'] * agc_up_noise,
-                'agc_dn': grouped['l_agc_dn'] * agc_dn_noise
+                'agc_up': base_scenario['l_agc_up'] * agc_up_noise,
+                'agc_dn': base_scenario['l_agc_dn'] * agc_dn_noise
             })
             scenarios.append(scenario)
-        return scenarios, K_up, K_dn
+        
+        # 返回场景列表和K值DataFrame
+        capacity_reserves = pd.DataFrame({
+            'timeslot': range(T),
+            'K_up': K_up_values,
+            'K_dn': K_dn_values
+        })
+        
+        return scenarios, capacity_reserves
 
     
     def reduce_scenarios(self, *,

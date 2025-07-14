@@ -2,17 +2,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_ev_bids_and_price(model, dam_price, output_path=None):
+def plot_ev_bids_and_price(model, dam_price, energy_bids=None, output_path=None):
     """
     简洁绘制 EV 的 DAM Energy Bids 与价格曲线
     """
     # 1. 提取 EV bids（96个时间步）  这里取所有场景的平均值  因为场景概率均等
     ev_bids = np.zeros(96)
-    for w in range(model.num_scenarios):
-        for t in range(96):
-            var = model.model.getVarByName(f"P_ev0_total[{w},{t}]")
-            if var is not None:
-                ev_bids[t] += var.X / model.num_scenarios
+    
+    # 如果直接传入了energy_bids，优先使用传入的值
+
+    # 否则尝试从模型中获取
+    for t in range(96):
+        var = model.model.getVarByName(f"P_ev0_total[{t}]")
+        if var is not None:
+            ev_bids[t] = var.X
  
     # 2. 提取 DAM 价格（96 点）
     prices = dam_price['price'].values[:96]
@@ -59,18 +62,17 @@ def plot_ev_regulation_bids(model, output_path=None, case_name="Case I"):
     reg_up = np.zeros(96)   # 上调容量
     reg_dn = np.zeros(96)   # 下调容量
     
-    # 从模型中提取数据并计算所有场景的平均值
-    for w in range(model.num_scenarios):
-        for t in range(96):
-            # 获取上调容量变量
-            ru_var = model.model.getVarByName(f"R_ev_up[{w},{t}]")
-            if ru_var is not None:
-                reg_up[t] += ru_var.X / model.num_scenarios
-                
-            # 获取下调容量变量
-            rd_var = model.model.getVarByName(f"R_ev_dn[{w},{t}]")
-            if rd_var is not None:
-                reg_dn[t] += rd_var.X / model.num_scenarios
+    # 从模型中提取数据
+    for t in range(96):
+        # 获取上调容量变量
+        ru_var = model.model.getVarByName(f"R_ev_up[{t}]")
+        if ru_var is not None:
+            reg_up[t] = ru_var.X
+            
+        # 获取下调容量变量
+        rd_var = model.model.getVarByName(f"R_ev_dn[{t}]")
+        if rd_var is not None:  
+            reg_dn[t] = rd_var.X
     
     # 2. 创建时间轴
     hours = np.arange(0, 24, 0.25)
