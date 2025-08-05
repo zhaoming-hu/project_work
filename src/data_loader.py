@@ -54,7 +54,15 @@ class DataLoader:
         df["price"] = pd.to_numeric(df["price"], errors="coerce")
         df = df[["timeslot", "price"]].sort_values(by="timeslot")
         return df
-
+    
+    def load_multiplier(self, filename: str = "Mileage_multiplier_2025_05_01.csv") -> pd.DataFrame:
+        """读取mileage multiplier"""
+        df = pd.read_csv(self.data_dir / filename)
+        df = df.rename(columns={"Timeslot": "timeslot", "Multiplier_Up": "Mileage_Multiplier_Up", "Multiplier_Dn": "Mileage_Multiplier_Dn"})
+        df["Mileage_Multiplier_Up"] = pd.to_numeric(df["Mileage_Multiplier_Up"], errors="coerce")
+        df["Mileage_Multiplier_Dn"] = pd.to_numeric(df["Mileage_Multiplier_Dn"], errors="coerce")
+        df = df[["timeslot", "Mileage_Multiplier_Up", "Mileage_Multiplier_Dn"]].sort_values(by="timeslot")
+        return df
 
     def load_ev_profiles(self, *, 
                         num_evs: int, # 总EV数量
@@ -163,14 +171,18 @@ class DataLoader:
             
             # 特殊处理夜间充电的离开时间：
             # 对于夜间充电，离开时间小于到达时间，表示跨天，需要加上96来表示第二天
-            df.loc[night_mask, 'departure_time'] = (df.loc[night_mask, 'departure_time'] * 4).astype(int)
+            df.loc[night_mask, 'departure_time'] = (df.loc[night_mask, 'departure_time'] * 4).astype(int) + 96
             
             # 对于白天充电，直接转换
             df.loc[day_mask, 'departure_time'] = (df.loc[day_mask, 'departure_time'] * 4).astype(int)
             
-            # 确保所有索引在有效范围内 (0-95)
+            # 到达时间限制在正确范围内
             df['arrival_time'] = df['arrival_time'].clip(0, 95)
-            df['departure_time'] = df['departure_time'].clip(0, 95)
+            
+            # 仅对白天充电的EV限制departure_time范围
+            df.loc[day_mask, 'departure_time'] = df.loc[day_mask, 'departure_time'].clip(0, 95)
+            # 对于跨天的夜间充电EV，保留其跨天信息，确保departure_time > 95
+            df.loc[night_mask, 'departure_time'] = df.loc[night_mask, 'departure_time'].clip(96, 191)
         
         return df
 

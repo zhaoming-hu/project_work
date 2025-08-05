@@ -63,14 +63,14 @@ class ScenarioGenerator:
             # 为白天充电的EV生成场景参数（连续小时时间）
             scenario.loc[day_mask, 'arrival_time'] = np.random.normal(8.82, 1.08, num_day_evs).clip(7.5, 10.5)
             scenario.loc[day_mask, 'departure_time'] = np.random.normal(18.55, 2.06, num_day_evs).clip(16.0, 21.0)
-            scenario.loc[day_mask, 'soc_arrival'] = np.random.uniform(0.2, 0.35, num_day_evs)
-            scenario.loc[day_mask, 'soc_departure'] = np.random.uniform(0.85, 0.95, num_day_evs)
+            scenario.loc[day_mask, 'soc_arrival'] = np.random.uniform(0.2, 0.35, num_day_evs).clip(0.2, 0.35)
+            scenario.loc[day_mask, 'soc_departure'] = np.random.uniform(0.85, 0.95, num_day_evs).clip(0.85, 0.95)
             
             # 为夜间充电的EV生成场景参数（连续小时时间）
             scenario.loc[night_mask, 'arrival_time'] = np.random.normal(22.91, 3.2, num_night_evs).clip(20.9, 24.0)
             scenario.loc[night_mask, 'departure_time'] = np.random.normal(8.95, 1.4, num_night_evs).clip(7.0, 10.0)
-            scenario.loc[night_mask, 'soc_arrival'] = np.random.uniform(0.2, 0.35, num_night_evs)
-            scenario.loc[night_mask, 'soc_departure'] = np.random.uniform(0.85, 0.95, num_night_evs)
+            scenario.loc[night_mask, 'soc_arrival'] = np.random.uniform(0.2, 0.35, num_night_evs).clip(0.2, 0.35)
+            scenario.loc[night_mask, 'soc_departure'] = np.random.uniform(0.85, 0.95, num_night_evs).clip(0.85, 0.95)
 
             # 如果输入数据使用了时间槽索引，则将连续小时时间转换为15分钟时间槽索引 (0-95)
             if use_timeslot:
@@ -83,14 +83,18 @@ class ScenarioGenerator:
                 
                 # 特殊处理夜间充电的离开时间：
                 # 对于夜间充电，离开时间小于到达时间，表示跨天，需要加上96来表示第二天
-                scenario.loc[night_mask, 'departure_time'] = (scenario.loc[night_mask, 'departure_time'] * 4).astype(int)
+                scenario.loc[night_mask, 'departure_time'] = (scenario.loc[night_mask, 'departure_time'] * 4).astype(int) + 96
                 
                 # 对于白天充电，直接转换
                 scenario.loc[day_mask, 'departure_time'] = (scenario.loc[day_mask, 'departure_time'] * 4).astype(int)
                 
-                # 确保所有索引在有效范围内 (0-95)
+                # 到达时间限制在正确范围内
                 scenario['arrival_time'] = scenario['arrival_time'].clip(0, 95)
-                scenario['departure_time'] = scenario['departure_time'].clip(0, 95)
+                
+                # 仅对白天充电的EV限制departure_time范围
+                scenario.loc[day_mask, 'departure_time'] = scenario.loc[day_mask, 'departure_time'].clip(0, 95)
+                # 对于跨天的夜间充电EV，保留其跨天信息，确保departure_time > 95
+                scenario.loc[night_mask, 'departure_time'] = scenario.loc[night_mask, 'departure_time'].clip(96, 191)
 
             scenarios.append(scenario)
         return scenarios
@@ -100,6 +104,7 @@ class ScenarioGenerator:
                                rtm_prices: pd.DataFrame,
                                capacity_price: pd.DataFrame,
                                balancing_prices: pd.DataFrame,
+                               mileage_multiplier: pd.DataFrame,
                                T: int) -> List[pd.DataFrame]:
         """生成价格场景，每个场景为DataFrame
         Args:
@@ -107,6 +112,7 @@ class ScenarioGenerator:
             rtm_prices: 实时市场价格
             capacity_price: 容量投标价格
             balancing_prices: 激活价格
+            mileage_multiplier: 里程乘数
             T: 时间步数
         Returns:
             List[pd.DataFrame]: 价格场景列表
@@ -118,13 +124,18 @@ class ScenarioGenerator:
             afrr_up_cap_noise = np.random.normal(1, 0.2, T)
             afrr_dn_cap_noise = np.random.normal(1, 0.2, T)
             balancing_noise = np.random.normal(1, 0.1, T)
+            # 乘数不添加随机性，保持原值
+            mileage_multiplier_up = mileage_multiplier['Mileage_Multiplier_Up'].values
+            mileage_multiplier_dn = mileage_multiplier['Mileage_Multiplier_Dn'].values
 
             scenario = pd.DataFrame({
                 'dam_prices': dam_prices['price'].values * dam_noise,
                 'rtm_prices': rtm_prices['price'].values * rtm_noise,
-                'afrr_up_cap_prices': capacity_price['afrr_up_cap_price'].values * afrr_up_cap_noise,
-                'afrr_dn_cap_prices': capacity_price['afrr_dn_cap_price'].values * afrr_dn_cap_noise,
-                'balancing_prices': balancing_prices['price'].values * balancing_noise
+                'afrr_up_cap_prices': capacity_price['afrr_up_cap_price'].values* afrr_up_cap_noise,
+                'afrr_dn_cap_prices': capacity_price['afrr_dn_cap_price'].values* afrr_dn_cap_noise,
+                'balancing_prices': balancing_prices['price'].values* balancing_noise,
+                'mileage_multiplier_up': mileage_multiplier_up,
+                'mileage_multiplier_dn': mileage_multiplier_dn
             })
 
             scenarios.append(scenario)
@@ -136,64 +147,62 @@ class ScenarioGenerator:
                              resample_freq: str = "15min") -> Tuple[List[pd.DataFrame], pd.DataFrame]:
         """
         生成AGC信号场景，并为每个时间段计算单独的K_up和K_dn容量预留值
-        
+
         Args:
             agc_signals: 原始AGC信号数据（含timeslot, agc_delta）
             T: 时间步数
             resample_freq: 重采样频率，默认15分钟
-            
+
         Returns:
-            List[pd.DataFrame]: AGC信号场景列表
-            pd.DataFrame: 包含每个时间段的K_up和K_dn值
+            List[pd.DataFrame]: AGC信号场景列表（平均值，未乘以0.25）
+            pd.DataFrame: 每个时间段的K_up/K_dn容量（乘以0.25后的MWh/MW）
         """
-        # 辅助函数：计算正/负值的均值
         def pos_mean(x):
             return x[x > 0].mean() if (x > 0).any() else 0.0
         def neg_mean(x):
             return -x[x < 0].mean() if (x < 0).any() else 0.0
-        
-        # 确保timeslot列是datetime类型
+
+        # 确保 timeslot 是 datetime 类型
         if not pd.api.types.is_datetime64_any_dtype(agc_signals['timeslot']):
             agc_signals['timeslot'] = pd.to_datetime(agc_signals['timeslot'])
-            
-        # 添加日期和每日时间段索引列
+
+        # 添加日期和时间段索引
         agc_signals['date'] = agc_signals['timeslot'].dt.date
         agc_signals['time_of_day'] = agc_signals['timeslot'].dt.hour * 4 + agc_signals['timeslot'].dt.minute // 15
-        
-        # 按日期和时间段分组，计算每组的平均正负值
+
+        # 按日和时间段分组，计算每15分钟的平均AGC_delta（未乘以0.25）
         daily_stats = agc_signals.groupby(['date', 'time_of_day'])['agc_delta'].agg(
             agc_up=pos_mean,
             agc_dn=neg_mean
         ).reset_index()
-        
-        # 将agc_up和agc_dn值乘以0.25（15分钟）
-        daily_stats['agc_up'] = daily_stats['agc_up'] * 0.25
-        daily_stats['agc_dn'] = daily_stats['agc_dn'] * 0.25
-        
-        # 对每个时间段，找到30天中的最大值
+
+        # 计算每时间段30天内最大值，乘以0.25以得K_up/K_dn（单位 MWh/MW）
         timeslot_max = daily_stats.groupby('time_of_day').agg({
             'agc_up': 'max',
             'agc_dn': 'max'
         }).reset_index()
-        
-        # 确保有96个时间段的数据
+        timeslot_max['agc_up'] *= 0.25
+        timeslot_max['agc_dn'] *= 0.25
+
+        # 确保有完整的时间段
         all_timeslots = pd.DataFrame({'time_of_day': range(T)})
         timeslot_max = pd.merge(all_timeslots, timeslot_max, on='time_of_day', how='left').fillna(0)
-        
-        # K_up和K_dn现在是每个时间段的数组
+
+        # 提取K值
         K_up_values = timeslot_max['agc_up'].values
         K_dn_values = timeslot_max['agc_dn'].values
-        
-        # 计算基础场景值（每个时间段的平均值）
+
+        # 生成基础场景（取15分钟平均值，单位仍为 MW/MW）
         base_scenario = agc_signals.groupby(pd.Grouper(key="timeslot", freq=resample_freq))["agc_delta"].agg(
             l_agc_up=pos_mean,
             l_agc_dn=neg_mean
-        )
-        base_scenario = base_scenario.iloc[:T].reset_index(drop=True)
-        base_scenario["l_agc_up"] = base_scenario["l_agc_up"] * 0.25
-        base_scenario["l_agc_dn"] = base_scenario["l_agc_dn"] * 0.25
-        
-        # 生成带噪声的场景
+        ).iloc[:T].reset_index(drop=True)
+
+        # 调试专用 用来调整agc数据 - 放大AGC信号使ES发挥backup作用
+        # base_scenario["l_agc_up"] = base_scenario["l_agc_up"] * 2000000000.0  # 极端放大20倍
+        # base_scenario["l_agc_dn"] = base_scenario["l_agc_dn"] * 1.0  # 极端放大20倍
+
+        # 生成带噪声场景（MW/MW）
         scenarios = []
         for _ in range(self.num_scenarios):
             agc_up_noise = np.random.normal(1, 0.1, T)
@@ -203,15 +212,16 @@ class ScenarioGenerator:
                 'agc_dn': base_scenario['l_agc_dn'] * agc_dn_noise
             })
             scenarios.append(scenario)
-        
-        # 返回场景列表和K值DataFrame
+
+        # 构建 K 值 DataFrame（单位为 MWh/MW）
         capacity_reserves = pd.DataFrame({
             'timeslot': range(T),
             'K_up': K_up_values,
             'K_dn': K_dn_values
         })
-        
+
         return scenarios, capacity_reserves
+
 
     
     def reduce_scenarios(self, *,
@@ -246,6 +256,8 @@ class ScenarioGenerator:
             feature.extend(price_scenario['afrr_up_cap_prices'].values)
             feature.extend(price_scenario['afrr_dn_cap_prices'].values)
             feature.extend(price_scenario['balancing_prices'].values)
+            feature.extend(price_scenario['mileage_multiplier_up'].values)
+            feature.extend(price_scenario['mileage_multiplier_dn'].values)
             
             # AGC特征
             agc_scenario = agc_scenarios[i]
