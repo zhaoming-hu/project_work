@@ -8,6 +8,7 @@ from constraints import V2GConstraintsCase2
 class V2GOptimizationModelCase2:
     def __init__(
         self,
+        case: int,
         reduced_ev_scenarios: List[pd.DataFrame],  #传入ev的数据
         reduced_price_scenarios: List[pd.DataFrame],  #传入价格数据：dam rtm价格和投标价、激活价
         reduced_agc_scenarios: List[pd.DataFrame],  #传入agc数据
@@ -29,6 +30,7 @@ class V2GOptimizationModelCase2:
         eta_dis = 0.95 #ES放电功率
     ):
         # 其他初始化代码保持不变
+        self.case = case
         self.reduced_ev_scenarios = reduced_ev_scenarios
         self.reduced_price_scenarios = reduced_price_scenarios
         self.reduced_agc_scenarios = reduced_agc_scenarios
@@ -472,7 +474,7 @@ class V2GOptimizationModelCase2:
             # print(f"t: {t}, energy_es_bids: {energy_es_bids[t]}, P_es1: {P_es1[t]}, E_es1_init: {E_es1_init[t]}")
             # print(f"t: {t}, P_es0: {P_es0[t]}")
 
-        # w = 0  # 场景0
+        w = 0  # 场景0
         for t in range(self.T):
             print(f"t: {t}, P_es2_ch{t}: {self.model.getVarByName(f'P_es2_ch[{w},{t}]').X} , P_es2_dis[t]: {self.model.getVarByName(f'P_es2_dis[{w},{t}]').X}")
 

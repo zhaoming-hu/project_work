@@ -9,11 +9,12 @@ from case4_model import V2GOptimizationModelCase4
 from plot import plot_ev_bids_and_price
 from plot import plot_ev_regulation_bids
 from plot import plot_es_bids_and_price
+from plot import plot_es_regulation_bids
 
 def main():
     # 1. 加载基础数据
     data_loader = DataLoader(data_dir="../data")
-    ev_profiles = data_loader.load_ev_profiles(num_evs=400, discount=0.2, charging_price=180, seed=42, use_timeslot=True)  # 降低discount减少可控EV比例       
+    ev_profiles = data_loader.load_ev_profiles(num_evs=4, discount=0.2, charging_price=180, seed=42, use_timeslot=True)  # 降低discount减少可控EV比例       
     rtm_price = data_loader.load_rtm_price()
     dam_price = data_loader.load_dam_price()
     agc_signal = data_loader.load_agc_signal()
@@ -60,9 +61,10 @@ def main():
         # 设置CVaR参数
         beta = 0.9 # 期望收益和CVaR的权重系数 越大越保守
         alpha = 0.5  # 置信水平 代表利润大于sigma的概率
-        
+
         # Case1模型，取消下面的注释 
         # model = V2GOptimizationModelCase1(
+        #     case = 1,
         #     reduced_ev_scenarios=reduced_ev_scenarios,
         #     reduced_price_scenarios=reduced_price_scenarios,
         #     reduced_agc_scenarios=reduced_agc_scenarios,
@@ -72,27 +74,30 @@ def main():
         # )
 
         # Case2模型，取消下面的注释 
-        model = V2GOptimizationModelCase2(
-            reduced_ev_scenarios=reduced_ev_scenarios,
-            reduced_price_scenarios=reduced_price_scenarios,
-            reduced_agc_scenarios=reduced_agc_scenarios,
-            capacity_reserves=capacity_reserves,  # 传递每个时段的容量预留值
-            beta=beta,  # 传递CVaR置信水平
-            alpha=alpha  # 传递CVaR权重系数
-        )
-        
-        # Case3模型，取消下面的注释
-        # model = V2GOptimizationModelCase3(
+        # model = V2GOptimizationModelCase2(
+        #     case = 2,
         #     reduced_ev_scenarios=reduced_ev_scenarios,
         #     reduced_price_scenarios=reduced_price_scenarios,
         #     reduced_agc_scenarios=reduced_agc_scenarios,
         #     capacity_reserves=capacity_reserves,  # 传递每个时段的容量预留值
-        #     beta=beta,
-        #     alpha=alpha
+        #     beta=beta,  # 传递CVaR置信水平
+        #     alpha=alpha  # 传递CVaR权重系数
         # )
+        
+        # Case3模型，取消下面的注释
+        model = V2GOptimizationModelCase3(
+            case = 3,
+            reduced_ev_scenarios=reduced_ev_scenarios,
+            reduced_price_scenarios=reduced_price_scenarios,
+            reduced_agc_scenarios=reduced_agc_scenarios,
+            capacity_reserves=capacity_reserves,  # 传递每个时段的容量预留值
+            beta=beta,
+            alpha=alpha
+        )
 
         # Case4模型，取消下面的注释
         # model = V2GOptimizationModelCase4(
+        #     case = 4,
         #     reduced_ev_scenarios=reduced_ev_scenarios,
         #     reduced_price_scenarios=reduced_price_scenarios,
         #     reduced_agc_scenarios=reduced_agc_scenarios,
@@ -129,30 +134,43 @@ def main():
             
             # 绘制EV bids和能源价格图像
             try:
-                print("\n正在绘制EV bids和能源价格图像...")
-                plot_ev_bids_and_price(
-                    model, 
-                    dam_price,
-                    output_path=os.path.join(output_dir, "ev_bids_and_price.png")
-                )
-                print(f"图像已保存到 {os.path.join(output_dir, 'ev_bids_and_price.png')}")
-                
-                # 绘制EV调频投标图
-                print("\n正在绘制EV调频投标图像...")
-                plot_ev_regulation_bids(
-                    model,
-                    output_path=os.path.join(output_dir, "ev_regulation_bids.png"),
-                    case_name="Case I"
-                )
-                print(f"图像已保存到 {os.path.join(output_dir, 'ev_regulation_bids.png')}")
+                # 绘制EV相关图像 (所有Case都有EV)
+                if model.case in [1, 2, 3]:
+                    print("\n正在绘制EV bids和能源价格图像...")
+                    plot_ev_bids_and_price(
+                        model, 
+                        dam_price,
+                        output_path=os.path.join(output_dir, "ev_bids_and_price.png")
+                    )
+                    print(f"图像已保存到 {os.path.join(output_dir, 'ev_bids_and_price.png')}")
 
-                print("\n正在绘制ES bids和能源价格图像...")
-                plot_es_bids_and_price(
-                    model,
-                    dam_price,
-                    output_path=os.path.join(output_dir, "es_bids_and_price.png")
-                )
-                print(f"图像已保存到 {os.path.join(output_dir, 'es_bids_and_price.png')}")
+                    print("\n正在绘制EV调频投标图像...")
+                    plot_ev_regulation_bids(
+                        model,
+                        output_path=os.path.join(output_dir, "ev_regulation_bids.png"),
+                        case_name=f"Case {model.case}"
+                    )
+                    print(f"图像已保存到 {os.path.join(output_dir, 'ev_regulation_bids.png')}")
+                
+                # 绘制ES套利图像 (Case 2, 3有ES套利)
+                if model.case in [2, 3]:
+                    print("\n正在绘制ES bids和能源价格图像...")
+                    plot_es_bids_and_price(
+                        model,
+                        dam_price,
+                        output_path=os.path.join(output_dir, "es_bids_and_price.png")
+                    )
+                    print(f"图像已保存到 {os.path.join(output_dir, 'es_bids_and_price.png')}")
+                
+                # 绘制ES调频图像 (Case 3有ES调频)
+                if model.case in [3]:
+                    print("\n正在绘制ES调频投标图像...")
+                    plot_es_regulation_bids(
+                        model,
+                        output_path=os.path.join(output_dir, "es_regulation_bids.png"),
+                        case_name=f"Case {model.case}"
+                    )
+                    print(f"图像已保存到 {os.path.join(output_dir, 'es_regulation_bids.png')}")
             except Exception as e:
                 print(f"\n绘图过程中出现错误：{e}")
 

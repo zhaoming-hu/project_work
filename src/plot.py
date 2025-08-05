@@ -185,7 +185,7 @@ def plot_es_regulation_bids(model, output_path=None, case_name="Case III"):
     ax.set_ylabel('Regulation Bids/MW')
     ax.set_xlim(0, 24)
     ax.set_xticks(np.arange(0, 25, 4))
-    ax.set_ylim(-1.6, 1.6)
+    ax.set_ylim(-3.2, 3.2)
     ax.axhline(y=0, color='black', linestyle='-', alpha=0.3)
     ax.legend()
 

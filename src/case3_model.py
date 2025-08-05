@@ -8,6 +8,7 @@ from constraints import V2GConstraintsCase3
 class V2GOptimizationModelCase3:
     def __init__(
         self,
+        case: int,
         reduced_ev_scenarios: List[pd.DataFrame],  #传入ev的数据
         reduced_price_scenarios: List[pd.DataFrame],  #传入价格数据：dam rtm价格和投标价、激活价
         reduced_agc_scenarios: List[pd.DataFrame],  #传入agc数据
@@ -28,6 +29,7 @@ class V2GOptimizationModelCase3:
         eta_ch = 0.95, #ES充电功率
         eta_dis = 0.95 #ES放电功率
     ):
+        self.case = case
         self.reduced_ev_scenarios = reduced_ev_scenarios
         self.reduced_price_scenarios = reduced_price_scenarios
         self.reduced_agc_scenarios = reduced_agc_scenarios
@@ -178,6 +180,7 @@ class V2GOptimizationModelCase3:
                 N_cc=N_cc
             )
             
+            
             #EV fleet约束 - 使用场景无关的P_ev0_total
             constraints.add_ev_fleet_aggregate_constraints(
                 scenario_idx=w,
@@ -191,15 +194,7 @@ class V2GOptimizationModelCase3:
                 N_cc=N_cc,
                 N_uc=N_uc
             )
-            
-            # 市场约束
-            constraints.add_market_constraints(
-                T=self.T,
-                scenario_idx=w,
-                P_ev0_total=P_ev0_total,
-                P_ev_total=P_ev_total,
-                delta_t=self.delta_t,
-            )
+
 
             # ES1约束
             constraints.add_es1_constraints(
@@ -223,9 +218,7 @@ class V2GOptimizationModelCase3:
                 E_es1_init=E_es1_init,
                 eta_ch=self.eta_ch,
                 eta_dis=self.eta_dis,
-                delta_t=self.delta_t,
-                P_es_buy=P_es_buy,
-                P_es_sell=P_es_sell
+                delta_t=self.delta_t
             )
             
             # ES2约束
@@ -267,6 +260,8 @@ class V2GOptimizationModelCase3:
                 E_es1_max=E_es1_max,
                 E_es2_max=E_es2_max,
                 E_es_max=self.E_es_max,
+                E_es1_init=E_es1_init,
+                E_es2_init=E_es2_init,
                 E_es_init=self.E_es_init,
                 dod=dod,
                 kappa=self.kappa,
@@ -277,17 +272,17 @@ class V2GOptimizationModelCase3:
             constraints.add_es2_backup_constraints(
                 T=self.T,
                 scenario_idx=w,
-                P_ev_total=P_ev_total,
+                P_ev0_total=P_ev0_total,
                 R_ev_up=R_ev_up,
                 R_ev_dn=R_ev_dn,
                 agc_up=agc_scenario['agc_up'],
                 agc_dn=agc_scenario['agc_dn'],
-                P_ev_uc=P_ev_uc,
-                P_ev_cc=P_ev_cc,
+                P_es2_ch=P_es2_ch,
+                P_es2_dis=P_es2_dis,
                 P_es2_ch_i=P_es2_ch_i,
                 P_es2_dis_i=P_es2_dis_i,
-                N_cc=N_cc,
-                N_uc=N_uc
+                P_ev_total=P_ev_total,
+                N_cc=N_cc
             )
             
 
@@ -350,7 +345,8 @@ class V2GOptimizationModelCase3:
                 )
                 # ES调频激活收益
                 self.model.addConstr(
-                    F_es_mil[w, t] == (R_es_up[t] + R_es_dn[t]) * price_scenario['balancing_prices'].iloc[t] * self.delta_t
+                    F_es_mil[w, t] == (R_es_up[t] * price_scenario['mileage_multiplier_up'].iloc[t] + 
+                                       R_es_dn[t] * price_scenario['mileage_multiplier_dn'].iloc[t]) * price_scenario['balancing_prices'].iloc[t] * self.delta_t
                 )
 
                 #ES deploy cost
@@ -493,7 +489,11 @@ class V2GOptimizationModelCase3:
             reg_dn_ev_bids[t] = self.model.getVarByName(f"R_ev_dn[{t}]").X
             reg_up_es_bids[t] = self.model.getVarByName(f"R_es_up[{t}]").X
             reg_dn_es_bids[t] = self.model.getVarByName(f"R_es_dn[{t}]").X
-            
+        
+        w = 0  # 场景0
+        for t in range(self.T):
+            print(f"t: {t}, P_es2_ch{t}: {self.model.getVarByName(f'P_es2_ch[{w},{t}]').X} , P_es2_dis[t]: {self.model.getVarByName(f'P_es2_dis[{w},{t}]').X}")
+
         results["energy_ev_bids"] = energy_ev_bids
         results["energy_es_bids"] = energy_es_bids
         results["reg_up_ev_bids"] = reg_up_ev_bids
