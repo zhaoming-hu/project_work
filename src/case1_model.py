@@ -390,7 +390,7 @@ class V2GOptimizationModelCase1:
             energy_bids[t] = self.model.getVarByName(f"P_ev0_total[{t}]").X
             reg_up_bids[t] = self.model.getVarByName(f"R_ev_up[{t}]").X
             reg_dn_bids[t] = self.model.getVarByName(f"R_ev_dn[{t}]").X
-            # print(f"t: {t}, P_ev0_total: {energy_bids[t]}")
+            print(f"t: {t}, P_ev0_total: {energy_bids[t]}")
             # agc_scenario = self.reduced_agc_scenarios[w]
             # print(f"t: {t}, P_regulation: {reg_dn_bids[t] * agc_scenario['agc_dn'].iloc[t] - reg_up_bids[t] * agc_scenario['agc_up'].iloc[t]}")
 
@@ -401,8 +401,8 @@ class V2GOptimizationModelCase1:
         #     print(f"t: {t}, P_ev_total[t]: {self.model.getVarByName(f'P_ev_total[{w},{t}]').X}")
 
         # print("\n输出场景0的ES充放电功率:")
-        for t in range(self.T):
-            print(f"t: {t}, P_es_ch{t}: {self.model.getVarByName(f'P_es_ch[{w},{t}]').X} , P_es_dis[t]: {self.model.getVarByName(f'P_es_dis[{w},{t}]').X}") 
+        # for t in range(self.T):
+        #     print(f"t: {t}, P_es_ch{t}: {self.model.getVarByName(f'P_es_ch[{w},{t}]').X} , P_es_dis[t]: {self.model.getVarByName(f'P_es_dis[{w},{t}]').X}") 
 
             
         results["energy_ev_bids"] = energy_bids

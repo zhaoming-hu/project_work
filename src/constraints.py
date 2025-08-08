@@ -50,6 +50,7 @@ class V2GConstraintsCase1:
                 if is_charging_time:
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
                     self.model.addConstr(P_ev0_uc[scenario_idx, t, n] >= 0) 
+                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] <= Pmax)
                 else:
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
                     self.model.addConstr(P_ev0_uc[scenario_idx, t, n] == 0)
@@ -1542,8 +1543,11 @@ class V2GConstraintsCase4:
             )
             
             # 投标总和等于全局投标
-            scenario_bid_sum = gp.quicksum(P_ev0_uc[scenario_idx, t, n] for n in range(N_uc)) + gp.quicksum(P_ev0_cc[scenario_idx, t, n] for n in range(N_cc))
-            self.model.addConstr(P_ev0_total[t] == scenario_bid_sum)
+            self.model.addConstr(
+                P_ev0_total[t] == 
+                gp.quicksum(P_ev0_uc[scenario_idx, t, n] for n in range(N_uc)) +
+                gp.quicksum(P_ev0_cc[scenario_idx, t, n] for n in range(N_cc))
+            )
 
 
     def add_es1_constraints(self, *,
@@ -1564,9 +1568,7 @@ class V2GConstraintsCase4:
                        E_es1_init: gp.Var,
                        eta_ch: float,
                        eta_dis: float,
-                       delta_t: float,
-                       P_es_buy: dict,
-                       P_es_sell: dict,
+                       delta_t: float
                        ) -> None:
         """
         添加ES1相关约束
@@ -1589,8 +1591,6 @@ class V2GConstraintsCase4:
                 P_es0[t] - R_es_up[t] * agc_up[t] + R_es_dn[t] * agc_dn[t]
             )   #es1负责直接参与调频   所以  所有的之前上报的bids会在这里用掉一些
             
-            # DAM 投标功率 = 卖出 - 买入
-            self.model.addConstr(P_es0[t] == P_es_sell[t] - P_es_buy[t])
 
             # ES1 拆分充放电&充放电互斥
             self.model.addConstr(P_es1[scenario_idx, t] == P_es1_ch[scenario_idx, t] - P_es1_dis[scenario_idx, t])
@@ -1647,13 +1647,12 @@ class V2GConstraintsCase4:
                 self.model.addConstr(mu_es2_ch[scenario_idx, t] + mu_es2_dis[scenario_idx, t] <= 1)
                 
                 # 添加ES2总功率与分配给各EV的功率之间的关联约束
-                if P_es2_ch_i is not None and P_es2_dis_i is not None and N_cc > 0:
-                    self.model.addConstr(
-                        P_es2_ch[scenario_idx, t] == gp.quicksum(P_es2_ch_i[scenario_idx, t, n] for n in range(N_cc))
-                    )
-                    self.model.addConstr(
-                        P_es2_dis[scenario_idx, t] == gp.quicksum(P_es2_dis_i[scenario_idx, t, n] for n in range(N_cc))
-                    )
+                self.model.addConstr(
+                    P_es2_ch[scenario_idx, t] == gp.quicksum(P_es2_ch_i[scenario_idx, t, n] for n in range(N_cc))
+                )
+                self.model.addConstr(
+                    P_es2_dis[scenario_idx, t] == gp.quicksum(P_es2_dis_i[scenario_idx, t, n] for n in range(N_cc))
+                )
                 
                 # ES2 电量演化
                 if t == 0:
@@ -1684,6 +1683,8 @@ class V2GConstraintsCase4:
                        E_es1_max: gp.Var,
                        E_es2_max: gp.Var,
                        E_es_max: float,
+                       E_es1_init: float,
+                       E_es2_init: float,
                        E_es_init: float,
                        dod: gp.Var,
                        kappa: float,
@@ -1718,36 +1719,40 @@ class V2GConstraintsCase4:
         self.model.addConstr(P_es1_max == E_es1_max * kappa)
         self.model.addConstr(P_es2_max == E_es2_max * kappa)
         self.model.addConstr(P_es_max == E_es_max * kappa)
+        self.model.addConstr(E_es1_init + E_es2_init == E_es_init)
 
     def add_es2_backup_constraints(self, *,
                                         T: int,
                                         scenario_idx: int,
-                                        P_ev_total: dict,         
+                                        P_ev0_total: dict,         
                                         R_ev_up: dict,       
                                         R_ev_dn: dict,       
                                         agc_up: pd.Series,       
-                                        agc_dn: pd.Series,       
-                                        P_ev_uc: dict,       
-                                        P_ev_cc: dict,      
+                                        agc_dn: pd.Series,             
+                                        P_es2_ch: dict,     
+                                        P_es2_dis: dict,
                                         P_es2_ch_i: dict,     
                                         P_es2_dis_i: dict,
-                                        N_cc: int,
-                                        N_uc: int
+                                        P_ev_total: dict,
+                                        N_cc: int
                                         ) -> None:
 
         for t in range(T):
-            # 公式(24): P_ev_total - agc_up * R_ev_up + agc_dn * R_ev_dn = sum(P_ev_uc) + sum(P_ev_cc) + P_es2_ch - P_es2_dis
-            lhs = P_ev_total[scenario_idx, t] - agc_up[t] * R_ev_up[t] + agc_dn[t] * R_ev_dn[t]
-            rhs = (
-                gp.quicksum(P_ev_uc[scenario_idx, t, n] for n in range(N_uc)) +
-                gp.quicksum(P_ev_cc[scenario_idx, t, n] for n in range(N_cc)) +
-                gp.quicksum(P_es2_ch_i[scenario_idx, t, n] for n in range(N_cc)) - 
-                gp.quicksum(P_es2_dis_i[scenario_idx, t, n] for n in range(N_cc))
-            )
+            # ES2总功率约束
+            self.model.addConstr(
+                    P_es2_ch[scenario_idx, t] == gp.quicksum(P_es2_ch_i[scenario_idx, t, n] for n in range(N_cc))
+                )
+            self.model.addConstr(
+                    P_es2_dis[scenario_idx, t] == gp.quicksum(P_es2_dis_i[scenario_idx, t, n] for n in range(N_cc))
+                )
             
-            # 使用软约束允许较小误差
-            self.model.addConstr(lhs <= rhs + 0.01)
-            self.model.addConstr(lhs >= rhs - 0.01)
+            # 简单的功率平衡约束：EV调频目标 = EV实际功率 + ES2净功率  
+            # P_ev0_total - agc_up * R_ev_up + agc_dn * R_ev_dn = P_ev_total + P_es2_ch - P_es2_dis
+            self.model.addConstr(
+                P_ev0_total[t] - agc_up[t] * R_ev_up[t] + agc_dn[t] * R_ev_dn[t] == 
+                P_ev_total[scenario_idx, t] + P_es2_ch[scenario_idx, t] - P_es2_dis[scenario_idx, t],
+                name=f"power_balance_backup[{scenario_idx},{t}]"
+            )
 
 
     def add_cvar_constraints(self, *,
@@ -1777,56 +1782,24 @@ class V2GConstraintsCase4:
 
 
     def add_battery_degradation_constraints(self, *,
-                                        d: gp.Var,      # DoD ∈ (0,0.9]
-                                        L: gp.Var,      # cycle life
-                                        N0: float = 5000,   # 修正为与模型一致的值
-                                        beta: float = 0.5
-                                        ) -> None:
-
-        # 范围约束
-        self.model.addConstr(d >= 0.1, name="dod_lb_c4")
-        self.model.addConstr(d <= 0.9,  name="dod_ub_c4")
-        self.model.addConstr(L >= 5000, name="cycle_life_lb_c4")   # 提高下界以降低退化成本
-        self.model.addConstr(L <= 25000, name="cycle_life_ub_c4")  # 提高上界，现代储能可达到更高循环
-
-        # 使用软约束替代固定关系，允许循环寿命与DoD呈反比关系
-        # 基于经验关系：深放电减少循环寿命
-        self.model.addConstr(L * d >= 0.3 * N0, name="cycle_dod_lb_c4")  # 下界约束
-        self.model.addConstr(L * d <= 0.7 * N0, name="cycle_dod_ub_c4")  # 上界约束
-
-    def add_market_constraints(self, *,
-                                  T: int,
-                                  scenario_idx: int,
-                                  P_ev0_total: dict,
-                                  P_ev_total: dict,
-                                  delta_t: float) -> None:
+                                            d: gp.Var,      # DoD ∈ (0, 0.9]
+                                            L: gp.Var,      # cycle life
+                                            N0: float,
+                                            beta: float
+                                            ) -> None:
         """
-        添加 EVA 能量平衡和价格驱动的购电策略约束
+        添加电池退化约束：L = N0 / d^beta
+        即：d^beta * L = N0
         """
-        # 创建变量：EVA 能量平衡
-        EVA_energy_balance = self.model.addVars(T, lb=0, name=f"EVA_energy_balance_s{scenario_idx}")
-        
-        # 初始时刻
-        self.model.addConstr(
-            EVA_energy_balance[0] == (P_ev0_total[0] - P_ev_total[scenario_idx, 0]) * delta_t,
-        )
-       
-        # 后续时间
-        for t in range(1, T):           
-            self.model.addConstr(
-                EVA_energy_balance[t] == EVA_energy_balance[t-1] + (P_ev0_total[t] - P_ev_total[scenario_idx, t]) * delta_t,
-            )
-            self.model.addConstr(
-                EVA_energy_balance[t] >= 0,
-            )
-            max_bid_change = 1.0  # 最大变化量单位 MW
 
-            self.model.addConstr(
-                P_ev0_total[t] - P_ev0_total[t - 1] <= max_bid_change,
-            )
-            self.model.addConstr(
-                P_ev0_total[t - 1] - P_ev0_total[t] <= max_bid_change,
-            )
+        # 创建中间变量：d^beta
+        d_pow = self.model.addVar(name="d_pow")
+
+        # 添加幂约束：d_pow = d^beta
+        self.model.addGenConstrPow(d, d_pow, beta, name="d_pow_constr")
+
+        # 添加主约束：d_pow * L = N0
+        self.model.addQConstr(d_pow * L == N0, name="cycle_dod")
 
 
     def add_all_constraints(self) -> None:
@@ -1839,6 +1812,4 @@ class V2GConstraintsCase4:
         self.add_es2_backup_constraints()
         self.add_cvar_constraints()
         self.add_battery_degradation_constraints()
-        self.add_market_constraints()
-
     

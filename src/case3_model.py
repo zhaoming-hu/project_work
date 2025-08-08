@@ -482,7 +482,7 @@ class V2GOptimizationModelCase3:
         reg_dn_es_bids = {}
         
         for t in range(self.T):
-            # Case 3使用场景无关的投标变量
+            # 使用场景无关的投标变量
             energy_ev_bids[t] = self.model.getVarByName(f"P_ev0_total[{t}]").X
             energy_es_bids[t] = self.model.getVarByName(f"P_es0[{t}]").X
             reg_up_ev_bids[t] = self.model.getVarByName(f"R_ev_up[{t}]").X

@@ -17,8 +17,102 @@ class ScenarioGenerator:
         """
         self.num_scenarios = num_scenarios
         self.num_clusters = num_clusters
-        if seed is not None:
-            np.random.seed(seed)
+        self.seed = seed
+        # 使用局部随机数生成器，避免污染全局随机状态
+        self.rng = np.random.default_rng(seed) if seed is not None else np.random.default_rng()
+    
+    def generate_base_ev_profiles(self, *,
+                                  num_evs: int,
+                                  discount: float,
+                                  charging_price: float,
+                                  use_timeslot: bool = True) -> pd.DataFrame:
+        """生成基准EV数据（使用本生成器的随机源），确保与场景生成共享同一seed。
+
+        Args:
+            num_evs: 总EV数量
+            discount: 充电折扣比例
+            charging_price: 基础充电价格（€/MWh）
+            use_timeslot: 是否将小时时间转换为15分钟时间槽索引
+
+        Returns:
+            pd.DataFrame: EV参数表
+        """
+        rng = self.rng
+
+        # 计算可控EV比例
+        theta = discount
+        rho = max(0.0, min(1.0, 4 * theta - 0.2))
+        num_controllable = int(rho * num_evs)
+
+        # 白天/夜间数量
+        num_day = num_evs // 2
+        num_night = num_evs - num_day
+
+        # 分配可控数量
+        num_cc_day = int(min(rho * num_day, num_controllable))
+        num_cc_night = num_controllable - num_cc_day
+
+        df = pd.DataFrame()
+        df['ev_id'] = range(num_evs)
+
+        # 充电类型
+        df['charging_type'] = np.concatenate([['day'] * num_day, ['night'] * num_night])
+
+        # 控制类型并打乱
+        day_types = ['cc'] * num_cc_day + ['uc'] * (num_day - num_cc_day)
+        night_types = ['cc'] * num_cc_night + ['uc'] * (num_night - num_cc_night)
+        rng.shuffle(day_types)
+        rng.shuffle(night_types)
+        df['ev_type'] = np.concatenate([day_types, night_types])
+
+        # 初始化参数
+        df['arrival_time'] = 0.0
+        df['departure_time'] = 0.0
+        df['soc_arrival'] = 0.0
+        df['soc_departure'] = 0.0
+        df['soc_max'] = 0.95
+        df['soc_min'] = 0.1
+        df['battery_capacity'] = 0.028  # MWh（28 kWh）
+        df['max_charge_power'] = 0.0066  # MW（6.6 kW）
+        df['efficiency'] = 0.95
+
+        # 白天参数（小时）
+        day_mask = df['charging_type'] == 'day'
+        num_day_evs = int(day_mask.sum())
+        df.loc[day_mask, 'arrival_time'] = rng.normal(8.82, 1.08, num_day_evs).clip(7.5, 10.5)
+        df.loc[day_mask, 'departure_time'] = rng.normal(18.55, 2.06, num_day_evs).clip(16.0, 21.0)
+        df.loc[day_mask, 'soc_arrival'] = rng.uniform(0.2, 0.35, num_day_evs)
+        df.loc[day_mask, 'soc_departure'] = rng.uniform(0.85, 0.95, num_day_evs)
+
+        # 夜间参数（小时）
+        night_mask = df['charging_type'] == 'night'
+        num_night_evs = int(night_mask.sum())
+        df.loc[night_mask, 'arrival_time'] = rng.normal(22.91, 3.2, num_night_evs).clip(20.9, 24.0)
+        df.loc[night_mask, 'departure_time'] = rng.normal(8.95, 1.4, num_night_evs).clip(7.0, 10.0)
+        df.loc[night_mask, 'soc_arrival'] = rng.uniform(0.2, 0.35, num_night_evs)
+        df.loc[night_mask, 'soc_departure'] = rng.uniform(0.85, 0.95, num_night_evs)
+
+        # 充电价格（可控享受折扣）
+        df['charging_price'] = np.where(
+            df['ev_type'] == 'cc',
+            charging_price * (1 - discount),
+            charging_price
+        )
+
+        # 可选：转换为15分钟时间槽
+        if use_timeslot:
+            df['hour_arrival'] = df['arrival_time'].copy()
+            df['hour_departure'] = df['departure_time'].copy()
+
+            df['arrival_time'] = (df['arrival_time'] * 4).astype(int)
+            df.loc[night_mask, 'departure_time'] = (df.loc[night_mask, 'departure_time'] * 4).astype(int) + 96
+            df.loc[day_mask, 'departure_time'] = (df.loc[day_mask, 'departure_time'] * 4).astype(int)
+
+            df['arrival_time'] = df['arrival_time'].clip(0, 95)
+            df.loc[day_mask, 'departure_time'] = df.loc[day_mask, 'departure_time'].clip(0, 95)
+            df.loc[night_mask, 'departure_time'] = df.loc[night_mask, 'departure_time'].clip(96, 191)
+
+        return df
             
     def generate_ev_scenarios(self, *, ev_profiles: pd.DataFrame) -> List[pd.DataFrame]:
         """生成EV场景，每个场景都独立采样，符合原始分布
@@ -61,16 +155,16 @@ class ScenarioGenerator:
             scenario['charging_price'] = ev_profiles['charging_price'].values
             
             # 为白天充电的EV生成场景参数（连续小时时间）
-            scenario.loc[day_mask, 'arrival_time'] = np.random.normal(8.82, 1.08, num_day_evs).clip(7.5, 10.5)
-            scenario.loc[day_mask, 'departure_time'] = np.random.normal(18.55, 2.06, num_day_evs).clip(16.0, 21.0)
-            scenario.loc[day_mask, 'soc_arrival'] = np.random.uniform(0.2, 0.35, num_day_evs).clip(0.2, 0.35)
-            scenario.loc[day_mask, 'soc_departure'] = np.random.uniform(0.85, 0.95, num_day_evs).clip(0.85, 0.95)
+            scenario.loc[day_mask, 'arrival_time'] = self.rng.normal(8.82, 1.08, num_day_evs).clip(7.5, 10.5)
+            scenario.loc[day_mask, 'departure_time'] = self.rng.normal(18.55, 2.06, num_day_evs).clip(16.0, 21.0)
+            scenario.loc[day_mask, 'soc_arrival'] = self.rng.uniform(0.2, 0.35, num_day_evs).clip(0.2, 0.35)
+            scenario.loc[day_mask, 'soc_departure'] = self.rng.uniform(0.85, 0.95, num_day_evs).clip(0.85, 0.95)
             
             # 为夜间充电的EV生成场景参数（连续小时时间）
-            scenario.loc[night_mask, 'arrival_time'] = np.random.normal(22.91, 3.2, num_night_evs).clip(20.9, 24.0)
-            scenario.loc[night_mask, 'departure_time'] = np.random.normal(8.95, 1.4, num_night_evs).clip(7.0, 10.0)
-            scenario.loc[night_mask, 'soc_arrival'] = np.random.uniform(0.2, 0.35, num_night_evs).clip(0.2, 0.35)
-            scenario.loc[night_mask, 'soc_departure'] = np.random.uniform(0.85, 0.95, num_night_evs).clip(0.85, 0.95)
+            scenario.loc[night_mask, 'arrival_time'] = self.rng.normal(22.91, 3.2, num_night_evs).clip(20.9, 24.0)
+            scenario.loc[night_mask, 'departure_time'] = self.rng.normal(8.95, 1.4, num_night_evs).clip(7.0, 10.0)
+            scenario.loc[night_mask, 'soc_arrival'] = self.rng.uniform(0.2, 0.35, num_night_evs).clip(0.2, 0.35)
+            scenario.loc[night_mask, 'soc_departure'] = self.rng.uniform(0.85, 0.95, num_night_evs).clip(0.85, 0.95)
 
             # 如果输入数据使用了时间槽索引，则将连续小时时间转换为15分钟时间槽索引 (0-95)
             if use_timeslot:
@@ -119,11 +213,11 @@ class ScenarioGenerator:
         """
         scenarios = []
         for _ in range(self.num_scenarios):
-            dam_noise = np.random.normal(1, 0.1, T)
-            rtm_noise = np.random.normal(1, 0.15, T)
-            afrr_up_cap_noise = np.random.normal(1, 0.2, T)
-            afrr_dn_cap_noise = np.random.normal(1, 0.2, T)
-            balancing_noise = np.random.normal(1, 0.1, T)
+            dam_noise = self.rng.normal(1, 0.1, T)
+            rtm_noise = self.rng.normal(1, 0.15, T)
+            afrr_up_cap_noise = self.rng.normal(1, 0.2, T)
+            afrr_dn_cap_noise = self.rng.normal(1, 0.2, T)
+            balancing_noise = self.rng.normal(1, 0.1, T)
             # 乘数不添加随机性，保持原值
             mileage_multiplier_up = mileage_multiplier['Mileage_Multiplier_Up'].values
             mileage_multiplier_dn = mileage_multiplier['Mileage_Multiplier_Dn'].values
@@ -205,8 +299,8 @@ class ScenarioGenerator:
         # 生成带噪声场景（MW/MW）
         scenarios = []
         for _ in range(self.num_scenarios):
-            agc_up_noise = np.random.normal(1, 0.1, T)
-            agc_dn_noise = np.random.normal(1, 0.1, T)
+            agc_up_noise = self.rng.normal(1, 0.1, T)
+            agc_dn_noise = self.rng.normal(1, 0.1, T)
             scenario = pd.DataFrame({
                 'agc_up': base_scenario['l_agc_up'] * agc_up_noise,
                 'agc_dn': base_scenario['l_agc_dn'] * agc_dn_noise
@@ -267,7 +361,7 @@ class ScenarioGenerator:
             features.append(feature)
             
         # 使用K-means聚类
-        kmeans = KMeans(n_clusters=self.num_clusters, random_state=42)  #这里random_state看作seed
+        kmeans = KMeans(n_clusters=self.num_clusters, random_state=self.seed if self.seed is not None else 42)  #这里random_state看作seed
         labels = kmeans.fit_predict(features)  #fit(x)：对特征向量x进行训练 找到num_cluster个簇中心  predict(X)：将每个样本分配到最近的簇，返回每个样本所属的簇编号
         
         # 选择每个簇的中心场景
