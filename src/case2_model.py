@@ -413,6 +413,7 @@ class V2GOptimizationModelCase2:
         es_arb_revenue = 0
         es_deg_cost = 0
         
+        
         # 对所有场景进行求和
         pi = 1.0 / self.num_scenarios  # 每个场景的权重
         for w in range(self.num_scenarios):
@@ -424,7 +425,6 @@ class V2GOptimizationModelCase2:
                 ev_deploy_cost += pi * self.model.getVarByName(f"F_ev_deploy[{w},{t}]").X
                 es_arb_revenue += pi * self.model.getVarByName(f"F_es_arb[{w},{t}]").X
                 es_deg_cost += pi * self.model.getVarByName(f"F_es_deg[{w},{t}]").X
-        
         # 获取CVaR值
         sigma_value = self.model.getVarByName("sigma").X
         cvar_value = sigma_value - (1/(1-self.alpha)) * sum(pi * self.model.getVarByName(f"phi[{w}]").X for w in range(self.num_scenarios))
@@ -474,9 +474,9 @@ class V2GOptimizationModelCase2:
             # print(f"t: {t}, energy_es_bids: {energy_es_bids[t]}, P_es1: {P_es1[t]}, E_es1_init: {E_es1_init[t]}")
             # print(f"t: {t}, P_es0: {P_es0[t]}")
 
-        w = 0  # 场景0
-        for t in range(self.T):
-            print(f"t: {t}, P_es2_ch{t}: {self.model.getVarByName(f'P_es2_ch[{w},{t}]').X} , P_es2_dis[t]: {self.model.getVarByName(f'P_es2_dis[{w},{t}]').X}")
+        # w = 0  # 场景0
+        # for t in range(self.T):
+        #     print(f"t: {t}, P_es2_ch{t}: {self.model.getVarByName(f'P_es2_ch[{w},{t}]').X} , P_es2_dis[t]: {self.model.getVarByName(f'P_es2_dis[{w},{t}]').X}")
 
         results["energy_ev_bids"] = energy_ev_bids
         results["energy_es_bids"] = energy_es_bids

@@ -473,6 +473,21 @@ class V2GOptimizationModelCase3:
             "expected_profit": expected_profit,  # 期望收益
         }
         
+        # 提取cc类EV的SOC数据
+        soc_values = {}
+        scenario_0_ev = self.reduced_ev_scenarios[0]
+        cc_evs = scenario_0_ev[scenario_0_ev['ev_type'] == 'cc'].reset_index(drop=True)
+        
+        for n in range(len(cc_evs)):
+            for t in range(self.T):
+                try:
+                    soc_var = self.model.getVarByName(f"soc[0,{t},{n}]")
+                    soc_values[(0, t, n)] = soc_var.X if soc_var else 0.0
+                except:
+                    soc_values[(0, t, n)] = 0.0
+        
+        results["soc_values"] = soc_values
+        
         # 保存能源和调频投标决策
         energy_ev_bids = {}
         energy_es_bids = {}
@@ -490,9 +505,9 @@ class V2GOptimizationModelCase3:
             reg_up_es_bids[t] = self.model.getVarByName(f"R_es_up[{t}]").X
             reg_dn_es_bids[t] = self.model.getVarByName(f"R_es_dn[{t}]").X
         
-        w = 0  # 场景0
-        for t in range(self.T):
-            print(f"t: {t}, P_es2_ch{t}: {self.model.getVarByName(f'P_es2_ch[{w},{t}]').X} , P_es2_dis[t]: {self.model.getVarByName(f'P_es2_dis[{w},{t}]').X}")
+        # w = 0  # 场景0
+        # for t in range(self.T):
+        #     print(f"t: {t}, P_es2_ch{t}: {self.model.getVarByName(f'P_es2_ch[{w},{t}]').X} , P_es2_dis[t]: {self.model.getVarByName(f'P_es2_dis[{w},{t}]').X}")
 
         results["energy_ev_bids"] = energy_ev_bids
         results["energy_es_bids"] = energy_es_bids
@@ -506,6 +521,6 @@ class V2GOptimizationModelCase3:
         results["P_es2_max"] = self.model.getVarByName("P_es2_max").X
         results["E_es1_max"] = self.model.getVarByName("E_es1_max").X
         results["E_es2_max"] = self.model.getVarByName("E_es2_max").X
-        
+
         return results
 

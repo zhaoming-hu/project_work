@@ -33,6 +33,23 @@ class DataLoader:
         df["timeslot"] = pd.to_datetime(df["timeslot"], dayfirst=True)
         df = df[["timeslot", "agc_delta"]].sort_values(by="timeslot")
         return df
+    
+    def load_agc_signal_test(self, filename: str = "agc_test.csv") -> pd.DataFrame:
+        """
+        只读取AGC信号原始数据，返回DataFrame，包含timeslot agc_up agc_dn
+        """
+        df = pd.read_csv(self.data_dir / filename)
+        df = df.rename(columns={"Time": "timeslot", "agc_up": "agc_up", "agc_dn": "agc_dn"})
+        # df["timeslot"] = pd.to_datetime(df["timeslot"], dayfirst=True)
+        df = df[["timeslot", "agc_up", "agc_dn"]].sort_values(by="timeslot")
+        return df
+    
+    def load_capacity_reserves(self, filename: str = "capacity_reserves.csv") -> pd.DataFrame:
+        """读取capacity_reserves"""
+        df = pd.read_csv(self.data_dir / filename)
+        df = df.rename(columns={"Time": "timeslot", "K_up": "K_up", "K_dn": "K_dn"})
+        df = df[["timeslot", "K_up", "K_dn"]].sort_values(by="timeslot")
+        return df
 
     def load_capacity_price(self, *, filename: str = "Capacity_price_2025-05-01.csv") -> pd.DataFrame:
         """读取capacity_bids价格"""

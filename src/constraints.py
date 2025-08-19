@@ -40,12 +40,12 @@ class V2GConstraintsCase1:
                 if is_overnight:
                     if Tk_i > 95:  # 当天晚上到达，第二天早上离开
                         actual_td = Tk_i - 96  # 计算实际的第二天离开时间槽
-                        is_charging_time = (t >= Ta_i) or (t <= actual_td) #这里给一个判断flag 方便后边写逻辑
+                        is_charging_time = (t >= Ta_i) or (t < actual_td)
                     else:  # 前一天晚上到达，当天早上离开
-                        is_charging_time = (t <= Tk_i)
+                        is_charging_time = (t < Tk_i)
                 else:
-                    # 处理白天充电
-                    is_charging_time = (Ta_i <= t <= Tk_i)            
+                    # 处理白天充电（左闭右开）
+                    is_charging_time = (Ta_i <= t < Tk_i)            
                 
                 if is_charging_time:
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
@@ -101,8 +101,8 @@ class V2GConstraintsCase1:
                     actual_td = Td - 96  # 计算实际的第二天离开时间槽
                     is_charging_time = (t >= Ta) or (t <= actual_td) 
                 else:
-                    # 处理白天充电
-                    is_charging_time = (Ta <= t <= Td)
+                    # 处理白天充电（左闭右开）
+                    is_charging_time = (Ta <= t < Td)
                     
                 if is_charging_time:
                     self.model.addConstr(P_ev0_cc[scenario_idx, t, n] >= 0)
@@ -423,6 +423,7 @@ class V2GConstraintsCase2:
                 if is_charging_time:
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
                     self.model.addConstr(P_ev0_uc[scenario_idx, t, n] >= 0) 
+                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] <= Pmax)
                 else:
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
                     self.model.addConstr(P_ev0_uc[scenario_idx, t, n] == 0)
@@ -473,8 +474,8 @@ class V2GConstraintsCase2:
                     actual_td = Td - 96  # 计算实际的第二天离开时间槽
                     is_charging_time = (t >= Ta) or (t <= actual_td) 
                 else:
-                    # 处理白天充电
-                    is_charging_time = (Ta <= t <= Td)
+                    # 处理白天充电（左闭右开）
+                    is_charging_time = (Ta <= t < Td)
                     
                 if is_charging_time:
                     self.model.addConstr(P_ev0_cc[scenario_idx, t, n] >= 0)
@@ -910,6 +911,7 @@ class V2GConstraintsCase3:
                 if is_charging_time:
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
                     self.model.addConstr(P_ev0_uc[scenario_idx, t, n] >= 0) 
+                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] <= Pmax)
                 else:
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
                     self.model.addConstr(P_ev0_uc[scenario_idx, t, n] == 0)
@@ -960,8 +962,8 @@ class V2GConstraintsCase3:
                     actual_td = Td - 96  # 计算实际的第二天离开时间槽
                     is_charging_time = (t >= Ta) or (t <= actual_td) 
                 else:
-                    # 处理白天充电
-                    is_charging_time = (Ta <= t <= Td)
+                    # 处理白天充电（左闭右开）
+                    is_charging_time = (Ta <= t < Td)
                     
                 if is_charging_time:
                     self.model.addConstr(P_ev0_cc[scenario_idx, t, n] >= 0)
@@ -1409,6 +1411,7 @@ class V2GConstraintsCase4:
                 if is_charging_time:
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
                     self.model.addConstr(P_ev0_uc[scenario_idx, t, n] >= 0) 
+                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] <= Pmax)
                 else:
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
                     self.model.addConstr(P_ev0_uc[scenario_idx, t, n] == 0)
@@ -1457,8 +1460,8 @@ class V2GConstraintsCase4:
                     actual_td = Td - 96  # 计算实际的第二天离开时间槽
                     is_charging_time = (t >= Ta) or (t <= actual_td) 
                 else:
-                    # 处理白天充电
-                    is_charging_time = (Ta <= t <= Td)
+                    # 处理白天充电（左闭右开）
+                    is_charging_time = (Ta <= t < Td)
                     
                 if is_charging_time:
                     self.model.addConstr(P_ev0_cc[scenario_idx, t, n] >= 0)

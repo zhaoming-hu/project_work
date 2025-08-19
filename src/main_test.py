@@ -3,7 +3,7 @@ import os
 import numpy as np
 import random
 from data_loader import DataLoader
-from scenario_generator import ScenarioGenerator
+from scenario_generator import ScenarioGenerator1
 from case1_model import V2GOptimizationModelCase1
 from case2_model import V2GOptimizationModelCase2
 from case3_model import V2GOptimizationModelCase3
@@ -73,14 +73,15 @@ def main():
         seed = 42
         data_loader = DataLoader(data_dir="../data")
         # 由场景生成器统一生成EV基准数据（使用同一seed）
-        scenario_gen = ScenarioGenerator(num_scenarios=100, num_clusters=1, seed=seed)
-        ev_profiles = scenario_gen.generate_base_ev_profiles(num_evs=400, discount=0.2, charging_price=180, use_timeslot=True)
+        scenario_gen = ScenarioGenerator1(num_scenarios=100, num_clusters=1, seed=seed)
+        ev_profiles = scenario_gen.generate_base_ev_profiles(num_evs=4, discount=0.2, charging_price=180, use_timeslot=True)
         rtm_price = data_loader.load_rtm_price()
         dam_price = data_loader.load_dam_price()
-        agc_signal = data_loader.load_agc_signal()
+        agc_signal = data_loader.load_agc_signal_test()
         capacity_price = data_loader.load_capacity_price()
         balancing_price = data_loader.load_balancing_energy_and_price()
         mileage_multiplier = data_loader.load_multiplier()
+        capacity_reserves = data_loader.load_capacity_reserves()
         print("基础数据加载完成")
     except Exception as e:
         print(f"加载基础数据时出错: {e}")
@@ -102,6 +103,7 @@ def main():
         # 获取AGC场景和每个时间段的容量预留值
         agc_scenarios, capacity_reserves = scenario_gen.generate_agc_scenarios(
             agc_signals=agc_signal, 
+            K_values=capacity_reserves,
             T=96
         )
         print("场景生成完成")
@@ -123,16 +125,14 @@ def main():
         print(f"缩减场景时出错: {e}")
         return
 
-    # 打印缩减后场景0的AGC信号和容量预留K_dn，K_up
+    # 打印缩减后场景0的AGC信号
     # try:
     #     if len(reduced_agc_scenarios) > 0:
-    #         print("\n===== 场景0的AGC信号和容量预留K_dn K_up（缩减后） =====")
+    #         print("\n===== 场景0的AGC信号（缩减后） =====")
     #         agc0 = reduced_agc_scenarios[0]
     #         print(f"长度: {len(agc0)}")
     #         print("agc_up:", agc0['agc_up'].tolist())
     #         print("agc_dn:", agc0['agc_dn'].tolist())
-    #         print("K_up:", capacity_reserves['K_up'].tolist())
-    #         print("K_dn:", capacity_reserves['K_dn'].tolist())
     #     else:
     #         print("未找到缩减后的AGC场景，无法打印场景0的AGC信号")
     # except Exception as e:
@@ -188,23 +188,6 @@ def main():
         print(f"EV买电成本: {results.get('ev_dam_cost', 0):.2f}")
         print(f"EV调频部署成本: {results.get('ev_deploy_cost', 0):.2f}")
         
-
-        print("-----------场景0 cc类EV的SOC-----------")
-        if 'soc_values' in results:
-            soc_values = results['soc_values']
-            if soc_values:
-                # 获取cc类EV的数量
-                scenario_0_ev = reduced_ev_scenarios[0]
-                cc_evs = scenario_0_ev[scenario_0_ev['ev_type'] == 'cc'].reset_index(drop=True)
-                
-                for n in range(len(cc_evs)):
-                    soc_list = [f"{soc_values.get((0, t, n), 0):.3f}" for t in range(96)]
-                    print(f"cc_EV{n}: {soc_list}")
-            else:
-                print("SOC数据为空")
-        else:
-            print("未找到SOC数据")
-
         # Case 2,3,4有ES
         if selected_case in [2, 3, 4]:
             print("\n----- ES收益与成本 -----")
@@ -272,19 +255,66 @@ def main():
         except Exception as e:
             print(f"\n绘图过程中出现错误：{e}")
 
-        # # 绘制AGC信号图（仅保存上下合并图，使用缩减后的第一个AGC场景）
-        # try:
-        #     if len(reduced_agc_scenarios) > 0:
-        #         print("\n正在绘制AGC信号图...")
-        #         plot_agc_signal_both(
-        #             reduced_agc_scenarios[0],
-        #             output_path=os.path.join(output_dir, "agc_up_down_signal.png"),
-        #             title='AGC Up & Down'
-        #         )
-        #         print("AGC图像已保存到 agc_up_down_signal.png")
-        # except Exception as e:
-        #     print(f"绘制AGC信号图时出现错误：{e}")
+        # 绘制AGC信号图（仅保存上下合并图，使用缩减后的第一个AGC场景）
+        try:
+            if len(reduced_agc_scenarios) > 0:
+                print("\n正在绘制AGC信号图...")
+                plot_agc_signal_both(
+                    reduced_agc_scenarios[0],
+                    output_path=os.path.join(output_dir, "agc_up_down_signal.png"),
+                    title='AGC Up & Down'
+                )
+                print("AGC图像已保存到 agc_up_down_signal.png")
+        except Exception as e:
+            print(f"绘制AGC信号图时出现错误：{e}")
 
+        try:
+            for i, scenario in enumerate(reduced_ev_scenarios):
+                # 找到“最后一辆 日间 cc 车”作为特殊车辆
+                day_cc_mask = (scenario['ev_type'] == 'cc') & (scenario['charging_type'] == 'day')
+                if not day_cc_mask.any():
+                    print(f"场景 {i}: 未找到日间 cc 车辆，跳过")
+                    continue
+                special_row_idx = scenario[day_cc_mask].index.max()
+
+                # 计算其在 cc 子集中的位置 n（与模型变量 soc[w,t,n] 对应）
+                cc_original_indices = scenario[scenario['ev_type'] == 'cc'].index.tolist()
+                try:
+                    n_pos = cc_original_indices.index(special_row_idx)
+                except ValueError:
+                    print(f"场景 {i}: 无法定位特殊 cc 车辆在 cc 子集中的位置，跳过")
+                    continue
+
+                T = 96
+                soc_vals = []
+                psp_vals = []  # P_ev0_cc (个体 cc 车辆的基准功率/能源投标)
+                r_up_vals = []
+                r_dn_vals = []
+                p_ev_cc_vals = []
+                for t in range(T):
+                    v_soc = model.model.getVarByName(f"soc[{i},{t},{n_pos}]")
+                    v_psp = model.model.getVarByName(f"P_ev0_cc[{i},{t},{n_pos}]")
+                    v_up = model.model.getVarByName(f"R_ev_up_i[{i},{t},{n_pos}]")
+                    v_dn = model.model.getVarByName(f"R_ev_dn_i[{i},{t},{n_pos}]")
+                    v_p_ev_cc = model.model.getVarByName(f"P_ev_cc[{i},{t},{n_pos}]")
+                    soc_vals.append(v_soc.X if v_soc is not None else None)
+                    psp_vals.append(v_psp.X if v_psp is not None else None)
+                    r_up_vals.append(v_up.X if v_up is not None else None)
+                    r_dn_vals.append(v_dn.X if v_dn is not None else None)
+                    p_ev_cc_vals.append(v_p_ev_cc.X if v_p_ev_cc is not None else None)
+
+                print(f"场景 {i} 特殊 cc EV (full_idx={special_row_idx}, cc_pos={n_pos}) SOC 序列:")
+                print(soc_vals)
+                print(f"场景 {i} 特殊 cc EV P_ev0_cc（能源/基准功率投标）序列:")
+                print(psp_vals)
+                print(f"场景 {i} 特殊 cc EV 容量出价 R_up 序列:")
+                print(r_up_vals)
+                print(f"场景 {i} 特殊 cc EV 容量出价 R_dn 序列:")
+                print(r_dn_vals)
+                print(f"场景 {i} 特殊 cc EV 充电功率 P_ev_cc 序列:")
+                print(p_ev_cc_vals)
+        except Exception as e:
+            print(f"提取特殊 cc EV 轨迹时出错：{e}")
 
         if 'P_es1_max' in results:
             print("\n----- 储能分配 -----")

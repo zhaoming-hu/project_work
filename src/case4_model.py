@@ -1,6 +1,7 @@
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
+import os
 from typing import Dict, List
 from constraints import V2GConstraintsCase4
 
@@ -266,7 +267,7 @@ class V2GOptimizationModelCase4:
             constraints.add_es2_backup_constraints(
                 T=self.T,
                 scenario_idx=w,
-                P_ev_total=P_ev_total,
+                P_ev0_total=P_ev0_total,
                 R_ev_up=R_ev_up,
                 R_ev_dn=R_ev_dn,
                 agc_up=agc_scenario['agc_up'],
@@ -275,6 +276,7 @@ class V2GOptimizationModelCase4:
                 P_es2_dis=P_es2_dis,
                 P_es2_ch_i=P_es2_ch_i,
                 P_es2_dis_i=P_es2_dis_i,
+                P_ev_total=P_ev_total,
                 N_cc=N_cc
             )
             
@@ -496,4 +498,67 @@ class V2GOptimizationModelCase4:
         results["E_es1_max"] = self.model.getVarByName("E_es1_max").X
         results["E_es2_max"] = self.model.getVarByName("E_es2_max").X
         
+        # 场景0：输出所有夜间充电的可控EV在“晚上到达 → 次日早上离开”期间的出价 P_ev0_cc
+        # try:
+        #     w = 0
+        #     ev_profiles = self.reduced_ev_scenarios[w]
+        #     cc_evs = ev_profiles[ev_profiles['ev_type'] == 'cc'].reset_index(drop=True)
+        #     night_cc_records = []
+        #     for n in range(len(cc_evs)):
+        #         row = cc_evs.iloc[n]
+        #         if str(row.get('charging_type', '')) != 'night':
+        #             continue
+        #         Ta = int(row['arrival_time'])
+        #         Td = int(row['departure_time'])  # 跨天，>95
+        #         actual_td = Td - 96
+        #         # 夜间段：t in [Ta..95]，早晨段：t in [0..actual_td]
+        #         timeslots = list(range(Ta, self.T)) + list(range(0, actual_td + 1))
+        #         bid_series = {}
+        #         for t in timeslots:
+        #             var = self.model.getVarByName(f"P_ev0_cc[{w},{t},{n}]")
+        #             bid_series[t] = var.X if var is not None else None
+        #         night_cc_records.append({
+        #             'ev_id': int(row['ev_id']) if 'ev_id' in row else n,
+        #             'n_index': n,
+        #             'arrival_slot': Ta,
+        #             'departure_slot_next_day': actual_td,
+        #             'bids': bid_series
+        #         })
+        #     results["night_cc_ev_bids_s0"] = night_cc_records
+
+        #     # 写出为CSV（长表：每行一个时间槽）
+        #     output_dir = "plots"
+        #     try:
+        #         if not os.path.exists(output_dir):
+        #             os.makedirs(output_dir)
+        #     except Exception:
+        #         pass
+
+        #     rows = []
+        #     for rec in night_cc_records:
+        #         ev_id = rec.get('ev_id')
+        #         n_idx = rec.get('n_index')
+        #         Ta = rec.get('arrival_slot')
+        #         Td_next = rec.get('departure_slot_next_day')
+        #         for t, val in rec.get('bids', {}).items():
+        #             rows.append({
+        #                 'scenario': 0,
+        #                 'ev_id': ev_id,
+        #                 'n_index': n_idx,
+        #                 'arrival_slot': Ta,
+        #                 'departure_slot_next_day': Td_next,
+        #                 'timeslot': t,
+        #                 'P_ev0_cc_MW': val
+        #             })
+        #     df_csv = pd.DataFrame(rows)
+        #     csv_path = os.path.join(output_dir, "cc_night_bids_scenario0.csv")
+        #     try:
+        #         df_csv.to_csv(csv_path, index=False, encoding='utf-8-sig')
+        #     except Exception:
+        #         # 文件写出失败不影响主流程
+        #         pass
+        # except Exception as _:
+        #     # 提取失败不影响其它结果
+        #     results["night_cc_ev_bids_s0"] = []
+
         return results
