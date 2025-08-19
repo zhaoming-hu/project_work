@@ -613,7 +613,7 @@ class ScenarioGenerator1:
             scenario.loc[special_idx, 'arrival_time'] = 16.0  # 小时
             scenario.loc[special_idx, 'departure_time'] = 23.0  # 小时（不跨天）
             scenario.loc[special_idx, 'soc_arrival'] = 0.6
-            scenario.loc[special_idx, 'soc_departure'] = 0.9
+            scenario.loc[special_idx, 'soc_departure'] = 0.95
             scenario.loc[special_idx, 'soc_max'] = 0.95
             scenario.loc[special_idx, 'soc_min'] = 0.1
 
