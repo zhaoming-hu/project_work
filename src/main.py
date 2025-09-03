@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import numpy as np
 import random
+import gc
 from data_loader import DataLoader
 from scenario_generator import ScenarioGenerator
 from case1_model import V2GOptimizationModelCase1
@@ -74,7 +75,7 @@ def main():
         data_loader = DataLoader(data_dir="../data")
         # 由场景生成器统一生成EV基准数据（使用同一seed）
         scenario_gen = ScenarioGenerator(num_scenarios=100, num_clusters=2, seed=seed)
-        ev_profiles = scenario_gen.generate_base_ev_profiles(num_evs=40, discount=0.2, charging_price=180, use_timeslot=True)
+        ev_profiles = scenario_gen.generate_base_ev_profiles(num_evs=10, discount=0.2, charging_price=180, use_timeslot=True)
         rtm_price = data_loader.load_rtm_price()
         dam_price = data_loader.load_dam_price()
         agc_signal = data_loader.load_agc_signal()
@@ -151,8 +152,8 @@ def main():
     # 5. 构建并求解优化模型
     try:
         # 设置CVaR参数
-        beta = 0.1 # 期望收益和CVaR的权重系数 越大越保守
-        alpha = 0.9  # 置信水平 代表利润大于sigma的概率
+        beta = 0.9 # 期望收益和CVaR的权重系数 越大越保守
+        alpha = 0.5  # 置信水平 代表利润大于sigma的概率
 
         # 创建对应的模型
         print(f"\n正在创建 Case {selected_case} 模型...")
@@ -297,7 +298,22 @@ def main():
         print(f"模型求解过程中出现错误：{solve_error}")
         import traceback
         traceback.print_exc()
-
+    finally:
+    
+        try:
+            #关闭所有 Matplotlib 图像句柄，释放绘图缓存
+            import matplotlib.pyplot as plt
+            plt.close('all')
+        except Exception:
+            pass
+        try:
+            #释放 Gurobi 模型内存
+            if 'model' in locals() and getattr(model, 'model', None) is not None:
+                model.model.dispose()
+                model.model = None
+        except Exception as e:
+            print(f"清理 Gurobi 模型时出错：{e}")
+        gc.collect()
 
 if __name__ == "__main__":
     main()

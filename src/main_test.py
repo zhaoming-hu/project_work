@@ -74,7 +74,7 @@ def main():
         seed = 42
         data_loader = DataLoader(data_dir="../data")
         # 由场景生成器统一生成EV基准数据（使用同一seed）
-        scenario_gen = ScenarioGenerator1(num_scenarios=100, num_clusters=1, seed=seed)
+        scenario_gen = ScenarioGenerator1(num_scenarios=100, num_clusters=2, seed=seed)
         ev_profiles = scenario_gen.generate_base_ev_profiles(num_evs=4, discount=0.2, charging_price=180, use_timeslot=True)
         rtm_price = data_loader.load_rtm_price()
         dam_price = data_loader.load_dam_price()

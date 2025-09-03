@@ -4,7 +4,6 @@ import pandas as pd
 from typing import Dict, List
 from constraints import V2GConstraintsCase3
 
-
 class V2GOptimizationModelCase3:
     def __init__(
         self,
@@ -379,7 +378,7 @@ class V2GOptimizationModelCase3:
         # 设置带CVaR的目标函数
         cvar_expr = sigma - (1/(1-self.alpha)) * gp.quicksum(pi * phi[w] for w in range(self.num_scenarios))
         expected_profit = gp.quicksum(pi * f_w[w] for w in range(self.num_scenarios))
-        
+
         # 目标函数：(1-beta)*期望收益 + beta*CVaR
         self.model.setObjective(
             (1-self.beta) * expected_profit + self.beta * cvar_expr,
@@ -395,6 +394,7 @@ class V2GOptimizationModelCase3:
         self.model.setParam('MarkowitzTol', 0.01)  # 增加数值稳定性
         self.model.setParam('Method', 2)  # 求解方法设为barrier
         self.model.setParam('Crossover', 0)  # 关闭crossover以提高求解效率
+        self.model.setParam('MIPGap', 0.01) 
         self.model.optimize()
         
         # 无论什么情况都写出标准LP文件
@@ -421,7 +421,7 @@ class V2GOptimizationModelCase3:
                 raise Exception("优化问题无解（无界）")
         else:
             raise Exception("优化问题无解")
-            
+
     def get_results(self) -> Dict:
         # 计算各类收益和成本的总和
         ev_cap_revenue = 0
@@ -435,6 +435,7 @@ class V2GOptimizationModelCase3:
         es_deploy_cost = 0
         es_deg_cost = 0
         
+
         # 对所有场景进行求和
         pi = 1.0 / self.num_scenarios  # 每个场景的权重
         for w in range(self.num_scenarios):
@@ -453,7 +454,10 @@ class V2GOptimizationModelCase3:
         # 获取CVaR值
         sigma_value = self.model.getVarByName("sigma").X
         cvar_value = sigma_value - (1/(1-self.alpha)) * sum(pi * self.model.getVarByName(f"phi[{w}]").X for w in range(self.num_scenarios))
-        
+        # phi_values = [self.model.getVarByName(f"phi[{w}]").X for w in range(self.num_scenarios)]
+        # print("phi(nonzero):", [(w, round(v,4)) for w,v in enumerate(phi_values) if abs(v)>1e-6])
+        # f_values = [self.model.getVarByName(f"f_w[{w}]").X for w in range(self.num_scenarios)]
+        # print("f_w (min, mean, max):", min(f_values), sum(f_values)/len(f_values), max(f_values))
         # 计算期望收益
         expected_profit = sum(pi * self.model.getVarByName(f"f_w[{w}]").X for w in range(self.num_scenarios))
         

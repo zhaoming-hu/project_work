@@ -328,8 +328,8 @@ class ScenarioGenerator:
         # 生成带噪声场景（MW/MW）
         scenarios = []
         for _ in range(self.num_scenarios):
-            agc_up_noise = self.rng.normal(1, 0.1, T)
-            agc_dn_noise = self.rng.normal(1, 0.1, T)
+            agc_up_noise = self.rng.normal(1, 1, T)
+            agc_dn_noise = self.rng.normal(1, 1, T)
             scenario = pd.DataFrame({
                 'agc_up': base_scenario['l_agc_up'] * agc_up_noise,
                 'agc_dn': base_scenario['l_agc_dn'] * agc_dn_noise
