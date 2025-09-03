@@ -73,8 +73,8 @@ def main():
         seed = 42
         data_loader = DataLoader(data_dir="../data")
         # 由场景生成器统一生成EV基准数据（使用同一seed）
-        scenario_gen = ScenarioGenerator(num_scenarios=100, num_clusters=1, seed=seed)
-        ev_profiles = scenario_gen.generate_base_ev_profiles(num_evs=400, discount=0.2, charging_price=180, use_timeslot=True)
+        scenario_gen = ScenarioGenerator(num_scenarios=100, num_clusters=2, seed=seed)
+        ev_profiles = scenario_gen.generate_base_ev_profiles(num_evs=40, discount=0.2, charging_price=180, use_timeslot=True)
         rtm_price = data_loader.load_rtm_price()
         dam_price = data_loader.load_dam_price()
         agc_signal = data_loader.load_agc_signal()
@@ -151,8 +151,8 @@ def main():
     # 5. 构建并求解优化模型
     try:
         # 设置CVaR参数
-        beta = 0.9 # 期望收益和CVaR的权重系数 越大越保守
-        alpha = 0.5  # 置信水平 代表利润大于sigma的概率
+        beta = 0.1 # 期望收益和CVaR的权重系数 越大越保守
+        alpha = 0.9  # 置信水平 代表利润大于sigma的概率
 
         # 创建对应的模型
         print(f"\n正在创建 Case {selected_case} 模型...")
@@ -189,21 +189,21 @@ def main():
         print(f"EV调频部署成本: {results.get('ev_deploy_cost', 0):.2f}")
         
 
-        print("-----------场景0 cc类EV的SOC-----------")
-        if 'soc_values' in results:
-            soc_values = results['soc_values']
-            if soc_values:
-                # 获取cc类EV的数量
-                scenario_0_ev = reduced_ev_scenarios[0]
-                cc_evs = scenario_0_ev[scenario_0_ev['ev_type'] == 'cc'].reset_index(drop=True)
+        # print("-----------场景0 cc类EV的SOC-----------")
+        # if 'soc_values' in results:
+        #     soc_values = results['soc_values']
+        #     if soc_values:
+        #         # 获取cc类EV的数量
+        #         scenario_0_ev = reduced_ev_scenarios[0]
+        #         cc_evs = scenario_0_ev[scenario_0_ev['ev_type'] == 'cc'].reset_index(drop=True)
                 
-                for n in range(len(cc_evs)):
-                    soc_list = [f"{soc_values.get((0, t, n), 0):.3f}" for t in range(96)]
-                    print(f"cc_EV{n}: {soc_list}")
-            else:
-                print("SOC数据为空")
-        else:
-            print("未找到SOC数据")
+        #         for n in range(len(cc_evs)):
+        #             soc_list = [f"{soc_values.get((0, t, n), 0):.3f}" for t in range(96)]
+        #             print(f"cc_EV{n}: {soc_list}")
+        #     else:
+        #         print("SOC数据为空")
+        # else:
+        #     print("未找到SOC数据")
 
         # Case 2,3,4有ES
         if selected_case in [2, 3, 4]:
@@ -288,10 +288,10 @@ def main():
 
         if 'P_es1_max' in results:
             print("\n----- 储能分配 -----")
-            print(f"ES1最大功率: {results['P_es1_max']:.2f} MW")
-            print(f"ES2最大功率: {results['P_es2_max']:.2f} MW")
-            print(f"ES1最大容量: {results['E_es1_max']:.2f} MWh")
-            print(f"ES2最大容量: {results['E_es2_max']:.2f} MWh")
+            print(f"ES1最大功率: {results['P_es1_max']:.6f} MW")
+            print(f"ES2最大功率: {results['P_es2_max']:.6f} MW")
+            print(f"ES1最大容量: {results['E_es1_max']:.6f} MWh")
+            print(f"ES2最大容量: {results['E_es2_max']:.6f} MWh")
             
     except Exception as solve_error:
         print(f"模型求解过程中出现错误：{solve_error}")

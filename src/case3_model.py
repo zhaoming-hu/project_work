@@ -13,12 +13,12 @@ class V2GOptimizationModelCase3:
         reduced_price_scenarios: List[pd.DataFrame],  #传入价格数据：dam rtm价格和投标价、激活价
         reduced_agc_scenarios: List[pd.DataFrame],  #传入agc数据
         capacity_reserves: pd.DataFrame,  # 每个时段的容量预留值DataFrame(timeslot, K_up, K_dn)
-        beta: float = 0.95,  #CVaR变量之一
-        alpha: float = 0.5,  #CVaR变量之一
-        P_es_max: float = 1.6,  # ES最大充放电功率1.6（MW）
-        E_es_max: float = 3.2,  # ES最大能量容量3.2（MWh）
-        E_es_init: float = 1.0,  # ES初始能量1.0（MWh）
-        dod_max: float = 0.9,    # 最大允许DOD
+        beta: float,  #CVaR变量之一
+        alpha: float,  #CVaR变量之一
+        P_es_max: float = 0.025,  # ES最大充放电功率1.6（MW）
+        E_es_max: float = 0.05,  # ES最大能量容量3.2（MWh）
+        E_es_init: float = 0.025,  # ES初始能量1.0（MWh）
+        dod_max: float = 0.2,    # 最大允许DOD
         gamma: float = 0.3,      # 最终能量与初始能量偏差容忍率
         T: int = 96,
         kappa: float = 0.5,  #等于最大充放电功率除以最大储能
@@ -69,19 +69,19 @@ class V2GOptimizationModelCase3:
         P_ev0_total = self.model.addVars(self.T, lb=-1e6, ub=1e6, name="P_ev0_total") # 能源投标 - 场景无关
         R_ev_up = self.model.addVars(self.T, lb=0, ub=1e6, name="R_ev_up") # 上调频容量投标 - 场景无关 
         R_ev_dn = self.model.addVars(self.T, lb=0, ub=1e6, name="R_ev_dn") # 下调频容量投标 - 场景无关
-        R_es_up = self.model.addVars(self.T, lb = 0, ub = 1e6, name="R_es_up") # Regulation up capacity bids of ES in hour t (MW)
-        R_es_dn = self.model.addVars(self.T, lb=0, ub=1e6, name="R_es_dn") # Regulation down capacity bids of ES in hour t (MW)
-        P_es0 = self.model.addVars(self.T, lb = - 3.2, ub=3.2, name="P_es0") # Energy bids (also PSP) of ES in hour t (MW)
-        E_es1_max = self.model.addVar(lb=0, ub=3.2, name="E_es1_max") # Maximum energy stored in ES1 (MW)
-        E_es2_max = self.model.addVar(lb=0, ub=3.2, name="E_es2_max") # Maximum energy stored in ES2 (MW)
-        E_es1_init  = self.model.addVar(lb=0, ub=3.2, name="E_es1_init") # Initial energy stored in ES1 (MW)
-        E_es2_init = self.model.addVar(lb=0, ub=3.2, name="E_es2_init") # Initial energy stored in ES2 (MW)
-        P_es1_max = self.model.addVar(lb=0, ub=1.6, name="P_es1_max") # Maximum charging(discharging) power of ES1 (MW)
-        P_es2_max = self.model.addVar(lb=0, ub=1.6, name="P_es2_max") # Maximum charging(discharging) power of ES2 (MW)
+        R_es_up = self.model.addVars(self.T, lb = 0, ub = self.P_es_max, name="R_es_up") # Regulation up capacity bids of ES in hour t (MW)
+        R_es_dn = self.model.addVars(self.T, lb=0, ub=self.P_es_max, name="R_es_dn") # Regulation down capacity bids of ES in hour t (MW)
+        P_es0 = self.model.addVars(self.T, lb = - self.P_es_max, ub=self.P_es_max, name="P_es0") # Energy bids (also PSP) of ES in hour t (MW)
+        E_es1_max = self.model.addVar(lb=0, ub=self.E_es_max, name="E_es1_max") # Maximum energy stored in ES1 (MW)
+        E_es2_max = self.model.addVar(lb=0, ub=self.E_es_max, name="E_es2_max") # Maximum energy stored in ES2 (MW)
+        E_es1_init  = self.model.addVar(lb=0, ub=self.E_es_max, name="E_es1_init") # Initial energy stored in ES1 (MW)
+        E_es2_init = self.model.addVar(lb=0, ub=self.E_es_max, name="E_es2_init") # Initial energy stored in ES2 (MW)
+        P_es1_max = self.model.addVar(lb=0, ub=self.P_es_max, name="P_es1_max") # Maximum charging(discharging) power of ES1 (MW)
+        P_es2_max = self.model.addVar(lb=0, ub=self.P_es_max, name="P_es2_max") # Maximum charging(discharging) power of ES2 (MW)
         
         # 场景相关的其他变量 一维/二维
-        E_es1 = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=3.2, name="E_es1") # Energy stored in ES1 in hour t in scenario w (MW)
-        E_es2 = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=3.2, name="E_es2") # Energy stored in ES2 in hour t in scenario w (MW)
+        E_es1 = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.E_es_max, name="E_es1") # Energy stored in ES1 in hour t in scenario w (MW)
+        E_es2 = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.E_es_max, name="E_es2") # Energy stored in ES2 in hour t in scenario w (MW)
         f_w = self.model.addVars(self.num_scenarios, lb=-1e6, ub=1e6, name="f_w") # Expected net profit of EV aggregator in scenario w (€)
         F_ev_buy = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_ev_buy") # DAM energy cost of EVA in hour t in scenario w (€)
         F_ev_sell = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_ev_sell") # Income of EVA in hour t in scenario w (€)
@@ -95,14 +95,14 @@ class V2GOptimizationModelCase3:
         F_es_arb = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=1e6, name="F_es_arb") # ES income from arbitrage in DAM in hour t in scenario w (€)
         F_es_deg = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_es_deg") # Degradation cost of ES in hour t in scenario w (€)
         P_ev_total = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="P_ev_total")  # Total charging power of EVs in hour t in scenario w (MW)
-        P_es_ch = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1.6, name="P_es_ch") # Charging power of ES in hour t in scenario w (MW)
-        P_es_dis = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1.6, name="P_es_dis") # Discharging power of ES in hour t in scenario w (MW)
-        P_es1 = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=1.6, name="P_es1") # Expected power of ES1 in hour t in scenario w (MW)
-        P_es2 = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=1.6, name="P_es2") # Expected power of ES2 in hour t in scenario w (MW)
-        P_es1_ch = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1.6, name="P_es1_ch") # Charging component of expected power of ES1 in hour t in scenario w (MW)
-        P_es1_dis = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1.6, name="P_es1_dis") # Discharging component of expected power of ES1 in hour t in scenario w (MW)
-        P_es2_ch = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1.6, name="P_es2_ch") # Charging component of expected power of ES2 in hour t in scenario w (MW)
-        P_es2_dis = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1.6, name="P_es2_dis") # Disharging component of expected power of ES2 in hour t in scenario w (MW)
+        P_es_ch = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es_ch") # Charging power of ES in hour t in scenario w (MW)
+        P_es_dis = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es_dis") # Discharging power of ES in hour t in scenario w (MW)
+        P_es1 = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=self.P_es_max, name="P_es1") # Expected power of ES1 in hour t in scenario w (MW)
+        P_es2 = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=self.P_es_max, name="P_es2") # Expected power of ES2 in hour t in scenario w (MW)
+        P_es1_ch = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es1_ch") # Charging component of expected power of ES1 in hour t in scenario w (MW)
+        P_es1_dis = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es1_dis") # Discharging component of expected power of ES1 in hour t in scenario w (MW)
+        P_es2_ch = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es2_ch") # Charging component of expected power of ES2 in hour t in scenario w (MW)
+        P_es2_dis = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es2_dis") # Disharging component of expected power of ES2 in hour t in scenario w (MW)
         mu_es_ch = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="mu_es_ch") # Binary variable for charging power of entire ES in hour t in scenario w
         mu_es_dis = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="mu_es_dis") # Binary variable for discharging power of entire ES in hour t in scenario w
         mu_es1_ch = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="mu_es1_ch") # Binary variable for expected charging power of ES1 in hour t in scenario w
@@ -132,8 +132,8 @@ class V2GOptimizationModelCase3:
         soc = self.model.addVars(keys_cc, lb=0, ub=1, name="soc") # SOC of individual EV i in hour t in scenario w
 
         # 添加ES2对每个可控EV的充放电功率变量
-        P_es2_ch_i = self.model.addVars(keys_cc, lb=0, ub=1.6, name="P_es2_ch_i") # ES2 charging power allocated to controllable EV i in hour t in scenario w (MW)
-        P_es2_dis_i = self.model.addVars(keys_cc, lb=0, ub=1.6, name="P_es2_dis_i") # ES2 discharging power allocated to controllable EV i in hour t in scenario w (MW)
+        P_es2_ch_i = self.model.addVars(keys_cc, lb=0, ub=self.P_es_max, name="P_es2_ch_i") # ES2 charging power allocated to controllable EV i in hour t in scenario w (MW)
+        P_es2_dis_i = self.model.addVars(keys_cc, lb=0, ub=self.P_es_max, name="P_es2_dis_i") # ES2 discharging power allocated to controllable EV i in hour t in scenario w (MW)
         
         # 6. 添加约束
         constraints.add_battery_degradation_constraints(

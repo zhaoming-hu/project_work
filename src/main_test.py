@@ -15,6 +15,7 @@ from plot import plot_es_regulation_bids
 from plot import plot_es_energy_change
 from plot import plot_ev_reg_bids_and_capacity_price
 from plot import plot_agc_signal_both
+from plot import plot_soc_comparison
 
 
 def get_case_selection():
@@ -203,57 +204,57 @@ def main():
             os.makedirs(output_dir)
         
         # 绘制图像
-        try:
-            # 绘制EV相关图像 (所有case都有EV)
-            print("\n正在绘制EV bids和能源价格图像...")
-            plot_ev_bids_and_price(
-                model, 
-                dam_price,
-                output_path=os.path.join(output_dir, "ev_bids_and_price.png")
-            )
-            print(f"图像已保存到 {os.path.join(output_dir, 'ev_bids_and_price.png')}")
+        # try:
+        #     # 绘制EV相关图像 (所有case都有EV)
+        #     print("\n正在绘制EV bids和能源价格图像...")
+        #     plot_ev_bids_and_price(
+        #         model, 
+        #         dam_price,
+        #         output_path=os.path.join(output_dir, "ev_bids_and_price.png")
+        #     )
+        #     print(f"图像已保存到 {os.path.join(output_dir, 'ev_bids_and_price.png')}")
 
-            print("\n正在绘制EV调频投标和容量价格图像...")
-            plot_ev_reg_bids_and_capacity_price(
-                model,
-                capacity_price,
-                output_path=os.path.join(output_dir, "ev_regulation_bids_and_capacity_price.png"),
-                case_name=f"Case {selected_case}"
-            )
-            print(f"图像已保存到 {os.path.join(output_dir, 'ev_regulation_bids_and_capacity_price.png')}")
+        #     print("\n正在绘制EV调频投标和容量价格图像...")
+        #     plot_ev_reg_bids_and_capacity_price(
+        #         model,
+        #         capacity_price,
+        #         output_path=os.path.join(output_dir, "ev_regulation_bids_and_capacity_price.png"),
+        #         case_name=f"Case {selected_case}"
+        #     )
+        #     print(f"图像已保存到 {os.path.join(output_dir, 'ev_regulation_bids_and_capacity_price.png')}")
             
-            # 绘制ES套利图像 (Case 2, 3有ES套利)
-            if selected_case in [2, 3]:
-                print("\n正在绘制ES bids和能源价格图像...")
-                plot_es_bids_and_price(
-                    model,
-                    dam_price,
-                    output_path=os.path.join(output_dir, "es_bids_and_price.png")
-                )
-                print(f"图像已保存到 {os.path.join(output_dir, 'es_bids_and_price.png')}")
+        #     # 绘制ES套利图像 (Case 2, 3有ES套利)
+        #     if selected_case in [2, 3]:
+        #         print("\n正在绘制ES bids和能源价格图像...")
+        #         plot_es_bids_and_price(
+        #             model,
+        #             dam_price,
+        #             output_path=os.path.join(output_dir, "es_bids_and_price.png")
+        #         )
+        #         print(f"图像已保存到 {os.path.join(output_dir, 'es_bids_and_price.png')}")
 
-            if selected_case in [2, 3, 4]:
-                print("\n正在绘制ES energy变化图像...")
-                plot_es_energy_change(
-                    model,
-                    dam_price,
-                    capacity_price,
-                    output_path=os.path.join(output_dir, "es_energy_change.png"),
-                    case_name=f"Case {selected_case}"
-                )
-                print(f"图像已保存到 {os.path.join(output_dir, 'es_energy_change.png')}")
+        #     if selected_case in [2, 3, 4]:
+        #         print("\n正在绘制ES energy变化图像...")
+        #         plot_es_energy_change(
+        #             model,
+        #             dam_price,
+        #             capacity_price,
+        #             output_path=os.path.join(output_dir, "es_energy_change.png"),
+        #             case_name=f"Case {selected_case}"
+        #         )
+        #         print(f"图像已保存到 {os.path.join(output_dir, 'es_energy_change.png')}")
 
-            # 绘制ES调频图像 (Case 3有ES调频)
-            if selected_case == 3:
-                print("\n正在绘制ES调频投标图像...")
-                plot_es_regulation_bids(
-                    model,
-                    output_path=os.path.join(output_dir, "es_regulation_bids.png"),
-                    case_name=f"Case {selected_case}"
-                )
-                print(f"图像已保存到 {os.path.join(output_dir, 'es_regulation_bids.png')}")
-        except Exception as e:
-            print(f"\n绘图过程中出现错误：{e}")
+        #     # 绘制ES调频图像 (Case 3有ES调频)
+        #     if selected_case == 3:
+        #         print("\n正在绘制ES调频投标图像...")
+        #         plot_es_regulation_bids(
+        #             model,
+        #             output_path=os.path.join(output_dir, "es_regulation_bids.png"),
+        #             case_name=f"Case {selected_case}"
+        #         )
+        #         print(f"图像已保存到 {os.path.join(output_dir, 'es_regulation_bids.png')}")
+        # except Exception as e:
+        #     print(f"\n绘图过程中出现错误：{e}")
 
         # 绘制AGC信号图（仅保存上下合并图，使用缩减后的第一个AGC场景）
         try:
@@ -270,51 +271,100 @@ def main():
 
         try:
             for i, scenario in enumerate(reduced_ev_scenarios):
-                # 找到“最后一辆 日间 cc 车”作为特殊车辆
+                # 找到所有日间 cc 车辆
                 day_cc_mask = (scenario['ev_type'] == 'cc') & (scenario['charging_type'] == 'day')
                 if not day_cc_mask.any():
                     print(f"场景 {i}: 未找到日间 cc 车辆，跳过")
                     continue
-                special_row_idx = scenario[day_cc_mask].index.max()
-
-                # 计算其在 cc 子集中的位置 n（与模型变量 soc[w,t,n] 对应）
+                
+                # 获取所有日间cc车辆的索引
+                day_cc_indices = scenario[day_cc_mask].index.tolist()
+                special_row_idx = max(day_cc_indices)  # 保留原来的"特殊车辆"概念（最后一辆）
+                
+                # 计算所有cc车辆在cc子集中的位置映射
                 cc_original_indices = scenario[scenario['ev_type'] == 'cc'].index.tolist()
-                try:
-                    n_pos = cc_original_indices.index(special_row_idx)
-                except ValueError:
-                    print(f"场景 {i}: 无法定位特殊 cc 车辆在 cc 子集中的位置，跳过")
-                    continue
-
+                
+                print(f"\n===== 场景 {i} 日间 cc EV 详细信息 =====")
+                print(f"找到 {len(day_cc_indices)} 辆日间 cc 车辆")
+                
                 T = 96
-                soc_vals = []
-                psp_vals = []  # P_ev0_cc (个体 cc 车辆的基准功率/能源投标)
-                r_up_vals = []
-                r_dn_vals = []
-                p_ev_cc_vals = []
-                for t in range(T):
-                    v_soc = model.model.getVarByName(f"soc[{i},{t},{n_pos}]")
-                    v_psp = model.model.getVarByName(f"P_ev0_cc[{i},{t},{n_pos}]")
-                    v_up = model.model.getVarByName(f"R_ev_up_i[{i},{t},{n_pos}]")
-                    v_dn = model.model.getVarByName(f"R_ev_dn_i[{i},{t},{n_pos}]")
-                    v_p_ev_cc = model.model.getVarByName(f"P_ev_cc[{i},{t},{n_pos}]")
-                    soc_vals.append(v_soc.X if v_soc is not None else None)
-                    psp_vals.append(v_psp.X if v_psp is not None else None)
-                    r_up_vals.append(v_up.X if v_up is not None else None)
-                    r_dn_vals.append(v_dn.X if v_dn is not None else None)
-                    p_ev_cc_vals.append(v_p_ev_cc.X if v_p_ev_cc is not None else None)
+                
+                # 先处理特殊车辆（最后一辆日间cc车）
+                print(f"\n ===== 特殊车辆信息 ===== ")
+                try:
+                    n_pos_special = cc_original_indices.index(special_row_idx)
+                    
+                    soc_vals = []
+                    psp_vals = []  # P_ev0_cc (个体 cc 车辆的基准功率/能源投标)
+                    r_up_vals = []
+                    r_dn_vals = []
+                    p_ev_cc_vals = []
+                    
+                    for t in range(T):
+                        v_soc = model.model.getVarByName(f"soc[{i},{t},{n_pos_special}]")
+                        v_psp = model.model.getVarByName(f"P_ev0_cc[{i},{t},{n_pos_special}]")
+                        v_up = model.model.getVarByName(f"R_ev_up_i[{i},{t},{n_pos_special}]")
+                        v_dn = model.model.getVarByName(f"R_ev_dn_i[{i},{t},{n_pos_special}]")
+                        v_p_ev_cc = model.model.getVarByName(f"P_ev_cc[{i},{t},{n_pos_special}]")
+                        soc_vals.append(v_soc.X if v_soc is not None else None)
+                        psp_vals.append(v_psp.X if v_psp is not None else None)
+                        r_up_vals.append(v_up.X if v_up is not None else None)
+                        r_dn_vals.append(v_dn.X if v_dn is not None else None)
+                        p_ev_cc_vals.append(v_p_ev_cc.X if v_p_ev_cc is not None else None)
 
-                print(f"场景 {i} 特殊 cc EV (full_idx={special_row_idx}, cc_pos={n_pos}) SOC 序列:")
-                print(soc_vals)
-                print(f"场景 {i} 特殊 cc EV P_ev0_cc（能源/基准功率投标）序列:")
-                print(psp_vals)
-                print(f"场景 {i} 特殊 cc EV 容量出价 R_up 序列:")
-                print(r_up_vals)
-                print(f"场景 {i} 特殊 cc EV 容量出价 R_dn 序列:")
-                print(r_dn_vals)
-                print(f"场景 {i} 特殊 cc EV 充电功率 P_ev_cc 序列:")
-                print(p_ev_cc_vals)
+                    print(f" 特殊 cc EV (最后一辆) - full_idx={special_row_idx}, cc_pos={n_pos_special}")
+                    print(f"   SOC 序列: {soc_vals}")
+                    print(f"   P_ev0_cc（能源/基准功率投标）序列: {psp_vals}")
+                    print(f"   容量出价 R_up 序列: {r_up_vals}")
+                    print(f"   容量出价 R_dn 序列: {r_dn_vals}")
+                    print(f"   充电功率 P_ev_cc 序列: {p_ev_cc_vals}")
+                    
+                except ValueError:
+                    print(f" 无法定位特殊 cc 车辆 (full_idx={special_row_idx}) 在 cc 子集中的位置")
+                
+                # 再处理其他普通日间cc车辆
+                other_day_cc_indices = [idx for idx in day_cc_indices if idx != special_row_idx]
+                if other_day_cc_indices:
+                    print(f"\n ===== 其他日间 cc EV 信息 ({len(other_day_cc_indices)}辆) ===== ")
+                    
+                    for vehicle_num, day_cc_idx in enumerate(other_day_cc_indices, 1):
+                        try:
+                            n_pos = cc_original_indices.index(day_cc_idx)
+                        except ValueError:
+                            print(f" 无法定位 cc 车辆 #{vehicle_num} (full_idx={day_cc_idx}) 在 cc 子集中的位置，跳过")
+                            continue
+                        
+                        soc_vals = []
+                        psp_vals = []  # P_ev0_cc (个体 cc 车辆的基准功率/能源投标)
+                        r_up_vals = []
+                        r_dn_vals = []
+                        p_ev_cc_vals = []
+                        
+                        for t in range(T):
+                            v_soc = model.model.getVarByName(f"soc[{i},{t},{n_pos}]")
+                            v_psp = model.model.getVarByName(f"P_ev0_cc[{i},{t},{n_pos}]")
+                            v_up = model.model.getVarByName(f"R_ev_up_i[{i},{t},{n_pos}]")
+                            v_dn = model.model.getVarByName(f"R_ev_dn_i[{i},{t},{n_pos}]")
+                            v_p_ev_cc = model.model.getVarByName(f"P_ev_cc[{i},{t},{n_pos}]")
+                            soc_vals.append(v_soc.X if v_soc is not None else None)
+                            psp_vals.append(v_psp.X if v_psp is not None else None)
+                            r_up_vals.append(v_up.X if v_up is not None else None)
+                            r_dn_vals.append(v_dn.X if v_dn is not None else None)
+                            p_ev_cc_vals.append(v_p_ev_cc.X if v_p_ev_cc is not None else None)
+
+                        print(f" 日间 cc EV #{vehicle_num} - full_idx={day_cc_idx}, cc_pos={n_pos}")
+                        print(f"   SOC 序列: {soc_vals}")
+                        print(f"   P_ev0_cc（能源/基准功率投标）序列: {psp_vals}")
+                        print(f"   容量出价 R_up 序列: {r_up_vals}")
+                        print(f"   容量出价 R_dn 序列: {r_dn_vals}")
+                        print(f"   充电功率 P_ev_cc 序列: {p_ev_cc_vals}")
+                        print()  # 添加空行分隔
+                else:
+                    print(f"\n ===== 其他日间 cc EV 信息 ===== ")
+                    print("  只有一辆日间 cc 车辆（即特殊车辆）")
+                    
         except Exception as e:
-            print(f"提取特殊 cc EV 轨迹时出错：{e}")
+            print(f"提取 cc EV 轨迹时出错：{e}")
 
         if 'P_es1_max' in results:
             print("\n----- 储能分配 -----")
@@ -322,6 +372,22 @@ def main():
             print(f"ES2最大功率: {results['P_es2_max']:.2f} MW")
             print(f"ES1最大容量: {results['E_es1_max']:.2f} MWh")
             print(f"ES2最大容量: {results['E_es2_max']:.2f} MWh")
+
+        # 绘制SOC对比图
+        try:
+            # 示例数据 - 您可以替换为实际的SOC数据
+            case3_data = [89.41054, 94.75158, 94.75158, 95]  # Case 3的22:00-22:45 SOC数据
+            case4_data = [89.40178, 95, 95, 95]  # Case 4的22:00-22:45 SOC数据
+            
+            print("\n正在绘制SOC对比图...")
+            plot_soc_comparison(
+                case3_data, 
+                case4_data,
+                output_path=os.path.join(output_dir, "soc_comparison_case3_case4.png")
+            )
+            print("SOC对比图已保存到 soc_comparison_case3_case4.png")
+        except Exception as e:
+            print(f"绘制SOC对比图时出现错误：{e}")
             
     except Exception as solve_error:
         print(f"模型求解过程中出现错误：{solve_error}")

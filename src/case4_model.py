@@ -13,8 +13,8 @@ class V2GOptimizationModelCase4:
         reduced_price_scenarios: List[pd.DataFrame],  #传入价格数据：dam rtm价格和投标价、激活价
         reduced_agc_scenarios: List[pd.DataFrame],  #传入agc数据
         capacity_reserves: pd.DataFrame,  # 每个时段的容量预留值DataFrame(timeslot, K_up, K_dn)
-        beta: float = 0.95,  #CVaR变量之一
-        alpha: float = 0.5,  #CVaR变量之一
+        beta: float,  #CVaR变量之一
+        alpha: float,  #CVaR变量之一
         P_es_max: float = 1.6,  # ES最大充放电功率1.6（MW）
         E_es_max: float = 3.2,  # ES最大能量容量3.2（MWh）
         E_es_init: float = 1.0,  # ES初始能量1.0（MWh）

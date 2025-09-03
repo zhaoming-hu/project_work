@@ -413,3 +413,50 @@ def plot_ev_reg_bids_and_capacity_price(model, capacity_price, output_path=None,
     else:
         plt.show()
     plt.close()
+
+
+def plot_soc_comparison(case3_data, case4_data, output_path="soc_comparison.png"):
+    """
+    绘制Case III和Case IV的SOC对比图 (22:00-23:00)
+    
+    Args:
+        case3_data: list, Case III的SOC数据 [22:00, 22:15, 22:30, 22:45]
+        case4_data: list, Case IV的SOC数据 [22:00, 22:15, 22:30, 22:45] 
+        output_path: str, 输出文件路径
+    """
+    import matplotlib.dates as mdates
+    from datetime import datetime, timedelta
+    
+    # 创建时间轴
+    times = ['22:00:00', '22:15:00', '22:30:00', '22:45:00', '23:00:00']
+    
+    # 复制22:45数据到23:00
+    case3_extended = case3_data + [case3_data[-1]]
+    case4_extended = case4_data + [case4_data[-1]]
+    
+    plt.figure(figsize=(10, 6))
+    
+    # 绘制线条
+    plt.plot(times, case3_extended, 'o-', color='#FF8C00', linewidth=2, label='Case III')
+    plt.plot(times, case4_extended, 's-', color='#90EE90', linewidth=2, label='Case IV')
+    
+    # 95%参考线
+    plt.axhline(y=95.0, color='blue', linestyle='--', alpha=0.8)
+    
+    # 标注起始点
+    plt.annotate(f'{case3_data[0]:.3f}', (times[0], case3_data[0]), 
+                xytext=(-10, -15), textcoords='offset points', ha='center')
+    plt.annotate(f'{case4_data[0]:.3f}', (times[0], case4_data[0]), 
+                xytext=(-10, 10), textcoords='offset points', ha='center')
+    
+    plt.xlabel('Time/h')
+    plt.ylabel('SOC/%')
+    plt.legend(loc='lower right')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    else:
+        plt.show()
+    plt.close()
