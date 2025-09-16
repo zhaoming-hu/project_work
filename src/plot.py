@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.dates as mdates
+from datetime import datetime, timedelta
 
 def plot_ev_bids_and_price(model, dam_price, energy_bids=None, output_path=None):
     """
@@ -184,7 +186,7 @@ def plot_es_regulation_bids(model, output_path=None, case_name="Case III"):
     ax.set_ylabel('Regulation Bids/MW')
     ax.set_xlim(0, 24)
     ax.set_xticks(np.arange(0, 25, 4))
-    ax.set_ylim(-3.2, 3.2)
+    ax.set_ylim(-0.16, 0.16)
     ax.axhline(y=0, color='black', linestyle='-', alpha=0.3)
     ax.legend()
 
@@ -328,7 +330,7 @@ def plot_es_energy_change(model, dam_price=None, capacity_price=None, output_pat
     ax1.set_ylabel('Energy (MWh)')
     ax1.set_xlim(0, 24)
     ax1.set_xticks(np.arange(0, 25, 2))
-    ax1.set_ylim(0, 3.3)
+    ax1.set_ylim(0, 0.16)
     ax1.axhline(y=0, color='black', linestyle='-', alpha=0.3)
 
     # 右轴：价格曲线（可选）
@@ -424,8 +426,6 @@ def plot_soc_comparison(case3_data, case4_data, output_path="soc_comparison.png"
         case4_data: list, Case IV的SOC数据 [22:00, 22:15, 22:30, 22:45] 
         output_path: str, 输出文件路径
     """
-    import matplotlib.dates as mdates
-    from datetime import datetime, timedelta
     
     # 创建时间轴
     times = ['22:00:00', '22:15:00', '22:30:00', '22:45:00', '23:00:00']
@@ -455,6 +455,68 @@ def plot_soc_comparison(case3_data, case4_data, output_path="soc_comparison.png"
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    else:
+        plt.show()
+    plt.close()
+
+
+def plot_es_energy_change_per_scenario(model, dam_price=None, capacity_price=None, output_path=None, case_name="Case II"):
+    """
+    绘制每个场景下 ES 的 energy 随时间变化图（逻辑简化版）。
+    - 左轴：ES1/ES2 能量（MWh）
+    - 右轴：可选的价格（€/MWh）
+    """
+    T = getattr(model, 'T', 96)
+    W = getattr(model, 'num_scenarios', 1)
+
+    # 1. 必需步骤：创建2D数组来按场景存储数据
+    energy1_scenarios = np.zeros((W, T))
+    energy2_scenarios = np.zeros((W, T))
+    found1, found2 = False, False # 标志位，判断是否找到了数据
+
+    # 2. 必需步骤：从模型结果中提取数据并填充数组
+    for w in range(W):
+        for t in range(T):
+            var1 = model.model.getVarByName(f"E_es1[{w},{t}]")
+            var2 = model.model.getVarByName(f"E_es2[{w},{t}]")
+            if var1 is not None:
+                energy1_scenarios[w, t] = var1.X
+                found1 = True
+            if var2 is not None:
+                energy2_scenarios[w, t] = var2.X
+                found2 = True
+
+    # --- 绘图设置 ---
+    hours = np.arange(0, 24, 24 / T)
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+
+    # 3. 核心修改：循环绘制每个场景的曲线
+    # Matplotlib 会自动为每条线选择不同的颜色
+    if found1:
+        for w in range(W):
+            ax1.step(hours, energy1_scenarios[w], where='post', linestyle='-', 
+                     label=f"{case_name} (ES1, Scen. {w+1})")
+    
+    if found2:
+        for w in range(W):
+            ax1.step(hours, energy2_scenarios[w], where='post', linestyle='--', 
+                     label=f"{case_name} (ES2, Scen. {w+1})")
+
+    # --- 坐标轴和标签等设置 (保持不变) ---
+    ax1.set_xlabel('Time/h')
+    ax1.set_ylabel('Energy (MWh)')
+    ax1.set_xlim(0, 24)
+    ax1.set_xticks(np.arange(0, 25, 2))
+    ax1.set_ylim(0, 0.05)
+    ax1.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+
+    # 简化图例：直接显示所有图例
+    ax1.legend(loc='upper left')
+
+    # --- 保存或显示图形 ---
+    plt.tight_layout()
     if output_path:
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
     else:

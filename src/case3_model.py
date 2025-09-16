@@ -14,10 +14,10 @@ class V2GOptimizationModelCase3:
         capacity_reserves: pd.DataFrame,  # 每个时段的容量预留值DataFrame(timeslot, K_up, K_dn)
         beta: float,  #CVaR变量之一
         alpha: float,  #CVaR变量之一
-        P_es_max: float = 0.025,  # ES最大充放电功率1.6（MW）
-        E_es_max: float = 0.05,  # ES最大能量容量3.2（MWh）
-        E_es_init: float = 0.025,  # ES初始能量1.0（MWh）
-        dod_max: float = 0.2,    # 最大允许DOD
+        P_es_max: float = 0.08,  # ES最大充放电功率1.6（MW）
+        E_es_max: float = 0.16,  # ES最大能量容量3.2（MWh）
+        E_es_init: float = 0.08,  # ES初始能量1.0（MWh）
+        dod_max: float = 0.90,    # 最大允许DOD
         gamma: float = 0.3,      # 最终能量与初始能量偏差容忍率
         T: int = 96,
         kappa: float = 0.5,  #等于最大充放电功率除以最大储能
@@ -128,7 +128,9 @@ class V2GOptimizationModelCase3:
         P_ev0_uc = self.model.addVars(keys_uc, lb=0, ub=1e6, name="P_ev0_uc") # PSP of uc individual EV i in hour t in scenario w (MW)
         R_ev_up_i = self.model.addVars(keys_cc, lb=0, ub=6.6e-3, name="R_ev_up_i") # Upward regulation capacity provided by controllable individual EV i in hour t in scenario w (MW)
         R_ev_dn_i = self.model.addVars(keys_cc, lb=0, ub=6.6e-3, name="R_ev_dn_i") # Downward regulation capacity provided by controllable individual EV i in hour t in scenario w (MW)
-        soc = self.model.addVars(keys_cc, lb=0, ub=1, name="soc") # SOC of individual EV i in hour t in scenario w
+        soc_cc = self.model.addVars(keys_cc, lb=0, ub=1, name="soc_cc") # SOC of individual cc EV i in hour t in scenario w
+        soc_uc = self.model.addVars(keys_uc, lb=0, ub=1, name="soc_uc") # SOC of individual cc EV i in hour t in scenario w
+
 
         # 添加ES2对每个可控EV的充放电功率变量
         P_es2_ch_i = self.model.addVars(keys_cc, lb=0, ub=self.P_es_max, name="P_es2_ch_i") # ES2 charging power allocated to controllable EV i in hour t in scenario w (MW)
@@ -155,9 +157,11 @@ class V2GOptimizationModelCase3:
             constraints.add_uc_ev_constraints(
                 ev_profiles=ev_profiles,
                 T=self.T,
+                delta_t=self.delta_t,
                 P_ev_uc=P_ev_uc,
                 P_ev0_uc=P_ev0_uc,
                 scenario_idx=w,
+                soc = soc_uc,
                 N_uc=N_uc
             )
             
@@ -168,7 +172,7 @@ class V2GOptimizationModelCase3:
                 T=self.T,
                 scenario_idx=w,
                 P_ev_cc=P_ev_cc,
-                soc=soc,
+                soc=soc_cc,
                 P_ev0_cc=P_ev0_cc,
                 R_ev_up_i=R_ev_up_i,
                 R_ev_dn_i=R_ev_dn_i,
@@ -394,11 +398,15 @@ class V2GOptimizationModelCase3:
         self.model.setParam('MarkowitzTol', 0.01)  # 增加数值稳定性
         self.model.setParam('Method', 2)  # 求解方法设为barrier
         self.model.setParam('Crossover', 0)  # 关闭crossover以提高求解效率
-        self.model.setParam('MIPGap', 0.01) 
+        self.model.setParam('MIPGap', 0.016) 
+        self.model.Params.Presolve = 2 #* Aggressive presolve
         self.model.optimize()
         
-        # 无论什么情况都写出标准LP文件
+        # 写出标准LP文件（始终可写）
         self.model.write("model.lp")
+        # 仅当存在可用解时才写出.sol，避免访问X属性错误
+        if self.model.SolCount and self.model.SolCount > 0:
+            self.model.write("model.sol")
         # 如果不可行，写出IIS文件
         if self.model.status == GRB.INFEASIBLE:
             print("模型不可行，正在写出IIS约束...")
@@ -478,19 +486,19 @@ class V2GOptimizationModelCase3:
         }
         
         # 提取cc类EV的SOC数据
-        soc_values = {}
-        scenario_0_ev = self.reduced_ev_scenarios[0]
-        cc_evs = scenario_0_ev[scenario_0_ev['ev_type'] == 'cc'].reset_index(drop=True)
+        # soc_values = {}
+        # scenario_0_ev = self.reduced_ev_scenarios[0]
+        # cc_evs = scenario_0_ev[scenario_0_ev['ev_type'] == 'cc'].reset_index(drop=True)
         
-        for n in range(len(cc_evs)):
-            for t in range(self.T):
-                try:
-                    soc_var = self.model.getVarByName(f"soc[0,{t},{n}]")
-                    soc_values[(0, t, n)] = soc_var.X if soc_var else 0.0
-                except:
-                    soc_values[(0, t, n)] = 0.0
+        # for n in range(len(cc_evs)):
+        #     for t in range(self.T):
+        #         try:
+        #             soc_var = self.model.getVarByName(f"soc[0,{t},{n}]")
+        #             soc_values[(0, t, n)] = soc_var.X if soc_var else 0.0
+        #         except:
+        #             soc_values[(0, t, n)] = 0.0
         
-        results["soc_values"] = soc_values
+        # results["soc_values"] = soc_values
         
         # 保存能源和调频投标决策
         energy_ev_bids = {}

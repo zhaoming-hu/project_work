@@ -17,43 +17,78 @@ class V2GConstraintsCase1:
         self.model = model
 
     def add_uc_ev_constraints(self, *, 
-                              ev_profiles: pd.DataFrame, 
-                              T: int, 
-                              P_ev_uc: dict, 
-                              P_ev0_uc: dict,
-                              scenario_idx: int, 
-                              N_uc: int) -> None:
+                            ev_profiles: pd.DataFrame, 
+                            T: int, 
+                            delta_t: float,
+                            P_ev_uc: dict, 
+                            P_ev0_uc: dict,
+                            scenario_idx: int, 
+                            soc: dict,
+                            N_uc: int) -> None:
         uc_evs = ev_profiles[ev_profiles["ev_type"] == "uc"].reset_index(drop=True)
         for n in range(N_uc):
             row = uc_evs.iloc[n]
-            Ta_i = row["arrival_time"]
+            Ta_i = int(row["arrival_time"])
+            Td_i = int(row["departure_time"])
             Sa_i = row["soc_arrival"]
             Sd_i = row["soc_departure"]
-            Eev_i = row["battery_capacity"]  # 现在是MWh
-            Pmax = row["max_charge_power"]  # 现在是MW
+            Eev_i = row["battery_capacity"]
+            Pmax = row["max_charge_power"]
             eta_ev = row["efficiency"]
             
-            # 计算 Tk_i,w
-            Tk_i = Ta_i + ((Sd_i - Sa_i) * Eev_i) / (Pmax * eta_ev)            
-            is_overnight = row["charging_type"] == "night" if "charging_type" in row else False
+            # 步骤 1: 计算理论上充满电需要的时间点 Tk_i
+            if Eev_i > 0 and Pmax > 0 and Sa_i < Sd_i:
+                duration_hours = ((Sd_i - Sa_i) * Eev_i) / (Pmax * eta_ev)
+                duration_slots = int(np.ceil(duration_hours / delta_t))
+                Tk_i = Ta_i + duration_slots
+            else:
+                Tk_i = Ta_i
+
+            # 步骤 2: 在循环中为每个t建立清晰、无矛盾的规则
             for t in range(T):
-                if is_overnight:
-                    if Tk_i > 95:  # 当天晚上到达，第二天早上离开
-                        actual_td = Tk_i - 96  # 计算实际的第二天离开时间槽
-                        is_charging_time = (t >= Ta_i) or (t < actual_td)
-                    else:  # 前一天晚上到达，当天早上离开
-                        is_charging_time = (t < Tk_i)
-                else:
-                    # 处理白天充电（左闭右开）
-                    is_charging_time = (Ta_i <= t < Tk_i)            
-                
-                if is_charging_time:
-                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] >= 0) 
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] <= Pmax)
-                else:
+                is_charging_time = (t >= Ta_i) and (t < Td_i) and (t < Tk_i)
+
+                if t < Ta_i:
+                    # --- 新的修改：满足您的要求 ---
+                    # 状态 A: 车还未到，SoC为0
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] == 0)
+                    self.model.addConstr(soc[scenario_idx, t, n] == 0)
+                
+                elif is_charging_time:
+                    # 状态 B: 正在充电
+                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
+                    
+                    # --- 新的修改：处理t=Ta_i的跳变 ---
+                    if t == Ta_i:
+                        # 在到达的瞬间，SoC从0“跳变”到Sa_i并开始充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i + (Pmax * eta_ev * delta_t / Eev_i))
+                    else: # t > Ta_i
+                        # 正常递归增加
+                        self.model.addConstr(soc[scenario_idx, t, n] == soc[scenario_idx, t - 1, n] + (Pmax * eta_ev * delta_t / Eev_i))
+
+                else: # t >= Ta_i 且不再充电
+                    # 状态 C: 车已到，但不充电
+                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
+                    
+                    # --- 新的修改：确保SoC保持不变 ---
+                    if t == Ta_i: # 如果在到达的瞬间就不需要充电 (Sa_i >= Sd_i)
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i)
+                    elif t > 0: # t > Ta_i 且不充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == soc[scenario_idx, t - 1, n])
+                    else: # t=0 且 Ta_i=0 但不充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i)
+
+
+        # 步骤 3: 在正确的位置和时间点，为车辆设定最终目标（需在车辆循环内设置）
+        # 注意：必须针对每辆车单独应用，否则当没有uc车辆时会引用未定义变量
+        for n in range(N_uc):
+            row = uc_evs.iloc[n]
+            Ta_i = int(row["arrival_time"])
+            Td_i = int(row["departure_time"])
+            Sd_i = row["soc_departure"]
+            final_t = min(Td_i - 1, T - 1)
+            if final_t >= Ta_i:
+                self.model.addConstr(soc[scenario_idx, final_t, n] >= Sd_i)
 
     def add_cc_ev_constraints(self, *, 
                            ev_profiles: pd.DataFrame,
@@ -390,43 +425,77 @@ class V2GConstraintsCase2:
         self.model = model
 
     def add_uc_ev_constraints(self, *, 
-                              ev_profiles: pd.DataFrame, 
-                              T: int, 
-                              P_ev_uc: dict, 
-                              P_ev0_uc: dict,
-                              scenario_idx: int, 
-                              N_uc: int) -> None:
+                            ev_profiles: pd.DataFrame, 
+                            T: int, 
+                            delta_t: float,
+                            P_ev_uc: dict, 
+                            P_ev0_uc: dict,
+                            scenario_idx: int, 
+                            soc: dict,
+                            N_uc: int) -> None:
         uc_evs = ev_profiles[ev_profiles["ev_type"] == "uc"].reset_index(drop=True)
         for n in range(N_uc):
             row = uc_evs.iloc[n]
-            Ta_i = row["arrival_time"]
+            Ta_i = int(row["arrival_time"])
+            Td_i = int(row["departure_time"])
             Sa_i = row["soc_arrival"]
             Sd_i = row["soc_departure"]
-            Eev_i = row["battery_capacity"]  # 现在是MWh
-            Pmax = row["max_charge_power"]  # 现在是MW
+            Eev_i = row["battery_capacity"]
+            Pmax = row["max_charge_power"]
             eta_ev = row["efficiency"]
             
-            # 计算 Tk_i,w
-            Tk_i = Ta_i + ((Sd_i - Sa_i) * Eev_i) / (Pmax * eta_ev)            
-            is_overnight = row["charging_type"] == "night" if "charging_type" in row else False
+            # 步骤 1: 计算理论上充满电需要的时间点 Tk_i
+            if Eev_i > 0 and Pmax > 0 and Sa_i < Sd_i:
+                duration_hours = ((Sd_i - Sa_i) * Eev_i) / (Pmax * eta_ev)
+                duration_slots = int(np.ceil(duration_hours / delta_t))
+                Tk_i = Ta_i + duration_slots
+            else:
+                Tk_i = Ta_i
+
+            # 步骤 2: 在循环中为每个t建立清晰、无矛盾的规则
             for t in range(T):
-                if is_overnight:
-                    if Tk_i > 95:  # 当天晚上到达，第二天早上离开
-                        actual_td = Tk_i - 96  # 计算实际的第二天离开时间槽
-                        is_charging_time = (t >= Ta_i) or (t <= actual_td) #这里给一个判断flag 方便后边写逻辑
-                    else:  # 前一天晚上到达，当天早上离开
-                        is_charging_time = (t <= Tk_i)
-                else:
-                    # 处理白天充电
-                    is_charging_time = (Ta_i <= t <= Tk_i)            
-                
-                if is_charging_time:
-                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] >= 0) 
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] <= Pmax)
-                else:
+                is_charging_time = (t >= Ta_i) and (t < Td_i) and (t < Tk_i)
+
+                if t < Ta_i:
+                    # --- 新的修改：满足您的要求 ---
+                    # 状态 A: 车还未到，SoC为0
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] == 0)
+                    self.model.addConstr(soc[scenario_idx, t, n] == 0)
+                
+                elif is_charging_time:
+                    # 状态 B: 正在充电
+                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
+                    
+                    # --- 新的修改：处理t=Ta_i的跳变 ---
+                    if t == Ta_i:
+                        # 在到达的瞬间，SoC从0“跳变”到Sa_i并开始充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i + (Pmax * eta_ev * delta_t / Eev_i))
+                    else: # t > Ta_i
+                        # 正常递归增加
+                        self.model.addConstr(soc[scenario_idx, t, n] == soc[scenario_idx, t - 1, n] + (Pmax * eta_ev * delta_t / Eev_i))
+
+                else: # t >= Ta_i 且不再充电
+                    # 状态 C: 车已到，但不充电
+                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
+                    
+                    # --- 新的修改：确保SoC保持不变 ---
+                    if t == Ta_i: # 如果在到达的瞬间就不需要充电 (Sa_i >= Sd_i)
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i)
+                    elif t > 0: # t > Ta_i 且不充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == soc[scenario_idx, t - 1, n])
+                    else: # t=0 且 Ta_i=0 但不充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i)
+
+
+        # 步骤 3: 在正确的位置和时间点，为车辆设定最终目标（需在车辆循环内设置）
+        for n in range(N_uc):
+            row = uc_evs.iloc[n]
+            Ta_i = int(row["arrival_time"])
+            Td_i = int(row["departure_time"])
+            Sd_i = row["soc_departure"]
+            final_t = min(Td_i - 1, T - 1)
+            if final_t >= Ta_i:
+                self.model.addConstr(soc[scenario_idx, final_t, n] >= Sd_i)
 
     def add_cc_ev_constraints(self, *, 
                            ev_profiles: pd.DataFrame,
@@ -878,43 +947,78 @@ class V2GConstraintsCase3:
         self.model = model
 
     def add_uc_ev_constraints(self, *, 
-                              ev_profiles: pd.DataFrame, 
-                              T: int, 
-                              P_ev_uc: dict, 
-                              P_ev0_uc: dict,
-                              scenario_idx: int, 
-                              N_uc: int) -> None:
+                            ev_profiles: pd.DataFrame, 
+                            T: int, 
+                            delta_t: float,
+                            P_ev_uc: dict, 
+                            P_ev0_uc: dict,
+                            scenario_idx: int, 
+                            soc: dict,
+                            N_uc: int) -> None:
         uc_evs = ev_profiles[ev_profiles["ev_type"] == "uc"].reset_index(drop=True)
         for n in range(N_uc):
             row = uc_evs.iloc[n]
-            Ta_i = row["arrival_time"]
+            Ta_i = int(row["arrival_time"])
+            Td_i = int(row["departure_time"])
             Sa_i = row["soc_arrival"]
             Sd_i = row["soc_departure"]
-            Eev_i = row["battery_capacity"]  # 现在是MWh
-            Pmax = row["max_charge_power"]  # 现在是MW
+            Eev_i = row["battery_capacity"]
+            Pmax = row["max_charge_power"]
             eta_ev = row["efficiency"]
             
-            # 计算 Tk_i,w
-            Tk_i = Ta_i + ((Sd_i - Sa_i) * Eev_i) / (Pmax * eta_ev)            
-            is_overnight = row["charging_type"] == "night" if "charging_type" in row else False
+            # 步骤 1: 计算理论上充满电需要的时间点 Tk_i
+            if Eev_i > 0 and Pmax > 0 and Sa_i < Sd_i:
+                duration_hours = ((Sd_i - Sa_i) * Eev_i) / (Pmax * eta_ev)
+                duration_slots = int(np.ceil(duration_hours / delta_t))
+                Tk_i = Ta_i + duration_slots
+            else:
+                Tk_i = Ta_i
+
+            # 步骤 2: 在循环中为每个t建立清晰、无矛盾的规则
             for t in range(T):
-                if is_overnight:
-                    if Tk_i > 95:  # 当天晚上到达，第二天早上离开
-                        actual_td = Tk_i - 96  # 计算实际的第二天离开时间槽
-                        is_charging_time = (t >= Ta_i) or (t <= actual_td) #这里给一个判断flag 方便后边写逻辑
-                    else:  # 前一天晚上到达，当天早上离开
-                        is_charging_time = (t <= Tk_i)
-                else:
-                    # 处理白天充电
-                    is_charging_time = (Ta_i <= t <= Tk_i)            
-                
-                if is_charging_time:
-                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] >= 0) 
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] <= Pmax)
-                else:
+                is_charging_time = (t >= Ta_i) and (t < Td_i) and (t < Tk_i)
+
+                if t < Ta_i:
+                    # --- 新的修改：满足您的要求 ---
+                    # 状态 A: 车还未到，SoC为0
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] == 0)
+                    self.model.addConstr(soc[scenario_idx, t, n] == 0)
+                
+                elif is_charging_time:
+                    # 状态 B: 正在充电
+                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
+                    
+                    # --- 新的修改：处理t=Ta_i的跳变 ---
+                    if t == Ta_i:
+                        # 在到达的瞬间，SoC从0“跳变”到Sa_i并开始充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i + (Pmax * eta_ev * delta_t / Eev_i))
+                    else: # t > Ta_i
+                        # 正常递归增加
+                        self.model.addConstr(soc[scenario_idx, t, n] == soc[scenario_idx, t - 1, n] + (Pmax * eta_ev * delta_t / Eev_i))
+
+                else: # t >= Ta_i 且不再充电
+                    # 状态 C: 车已到，但不充电
+                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
+                    
+                    # --- 新的修改：确保SoC保持不变 ---
+                    if t == Ta_i: # 如果在到达的瞬间就不需要充电 (Sa_i >= Sd_i)
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i)
+                    elif t > 0: # t > Ta_i 且不充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == soc[scenario_idx, t - 1, n])
+                    else: # t=0 且 Ta_i=0 但不充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i)
+
+
+        # 步骤 3: 在正确的位置和时间点，为车辆设定最终目标（需在车辆循环内设置）
+        for n in range(N_uc):
+            row = uc_evs.iloc[n]
+            Ta_i = int(row["arrival_time"])
+            Td_i = int(row["departure_time"])
+            Sd_i = row["soc_departure"]
+            final_t = min(Td_i - 1, T - 1)
+            if final_t >= Ta_i:
+                self.model.addConstr(soc[scenario_idx, final_t, n] >= Sd_i)
+
 
     def add_cc_ev_constraints(self, *, 
                            ev_profiles: pd.DataFrame,
@@ -979,10 +1083,7 @@ class V2GConstraintsCase3:
                     if is_overnight:
                         actual_td = Td - 96
                         if t == Ta:  # 初始时刻
-                            self.model.addConstr(
-                                soc[scenario_idx, t, n] == Sa + 
-                                (P_ev_cc[scenario_idx, t, n] * eta * delta_t / Eev)
-                            )
+                            self.model.addConstr(soc[scenario_idx, t, n] == Sa)
                         if t > Ta or t <= actual_td:  # 充电过程中
                             if t == 0:  # 新的一天开始
                                 prev_t = T - 1  # 使用前一天的最后时刻
@@ -1378,43 +1479,77 @@ class V2GConstraintsCase4:
         self.model = model
 
     def add_uc_ev_constraints(self, *, 
-                              ev_profiles: pd.DataFrame, 
-                              T: int, 
-                              P_ev_uc: dict, 
-                              P_ev0_uc: dict,
-                              scenario_idx: int, 
-                              N_uc: int) -> None:
+                            ev_profiles: pd.DataFrame, 
+                            T: int, 
+                            delta_t: float,
+                            P_ev_uc: dict, 
+                            P_ev0_uc: dict,
+                            scenario_idx: int, 
+                            soc: dict,
+                            N_uc: int) -> None:
         uc_evs = ev_profiles[ev_profiles["ev_type"] == "uc"].reset_index(drop=True)
         for n in range(N_uc):
             row = uc_evs.iloc[n]
-            Ta_i = row["arrival_time"]
+            Ta_i = int(row["arrival_time"])
+            Td_i = int(row["departure_time"])
             Sa_i = row["soc_arrival"]
             Sd_i = row["soc_departure"]
-            Eev_i = row["battery_capacity"]  # 现在是MWh
-            Pmax = row["max_charge_power"]  # 现在是MW
+            Eev_i = row["battery_capacity"]
+            Pmax = row["max_charge_power"]
             eta_ev = row["efficiency"]
             
-            # 计算 Tk_i,w
-            Tk_i = Ta_i + ((Sd_i - Sa_i) * Eev_i) / (Pmax * eta_ev)            
-            is_overnight = row["charging_type"] == "night" if "charging_type" in row else False
+            # 步骤 1: 计算理论上充满电需要的时间点 Tk_i
+            if Eev_i > 0 and Pmax > 0 and Sa_i < Sd_i:
+                duration_hours = ((Sd_i - Sa_i) * Eev_i) / (Pmax * eta_ev)
+                duration_slots = int(np.ceil(duration_hours / delta_t))
+                Tk_i = Ta_i + duration_slots
+            else:
+                Tk_i = Ta_i
+
+            # 步骤 2: 在循环中为每个t建立清晰、无矛盾的规则
             for t in range(T):
-                if is_overnight:
-                    if Tk_i > 95:  # 当天晚上到达，第二天早上离开
-                        actual_td = Tk_i - 96  # 计算实际的第二天离开时间槽
-                        is_charging_time = (t >= Ta_i) or (t <= actual_td) #这里给一个判断flag 方便后边写逻辑
-                    else:  # 前一天晚上到达，当天早上离开
-                        is_charging_time = (t <= Tk_i)
-                else:
-                    # 处理白天充电
-                    is_charging_time = (Ta_i <= t <= Tk_i)            
-                
-                if is_charging_time:
-                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] >= 0) 
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] <= Pmax)
-                else:
+                is_charging_time = (t >= Ta_i) and (t < Td_i) and (t < Tk_i)
+
+                if t < Ta_i:
+                    # --- 新的修改：满足您的要求 ---
+                    # 状态 A: 车还未到，SoC为0
                     self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
-                    self.model.addConstr(P_ev0_uc[scenario_idx, t, n] == 0)
+                    self.model.addConstr(soc[scenario_idx, t, n] == 0)
+                
+                elif is_charging_time:
+                    # 状态 B: 正在充电
+                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == Pmax)
+                    
+                    # --- 新的修改：处理t=Ta_i的跳变 ---
+                    if t == Ta_i:
+                        # 在到达的瞬间，SoC从0“跳变”到Sa_i并开始充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i + (Pmax * eta_ev * delta_t / Eev_i))
+                    else: # t > Ta_i
+                        # 正常递归增加
+                        self.model.addConstr(soc[scenario_idx, t, n] == soc[scenario_idx, t - 1, n] + (Pmax * eta_ev * delta_t / Eev_i))
+
+                else: # t >= Ta_i 且不再充电
+                    # 状态 C: 车已到，但不充电
+                    self.model.addConstr(P_ev_uc[scenario_idx, t, n] == 0)
+                    
+                    # --- 新的修改：确保SoC保持不变 ---
+                    if t == Ta_i: # 如果在到达的瞬间就不需要充电 (Sa_i >= Sd_i)
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i)
+                    elif t > 0: # t > Ta_i 且不充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == soc[scenario_idx, t - 1, n])
+                    else: # t=0 且 Ta_i=0 但不充电
+                        self.model.addConstr(soc[scenario_idx, t, n] == Sa_i)
+
+
+        # 步骤 3: 在正确的位置和时间点，为车辆设定最终目标（需在车辆循环内设置）
+        for n in range(N_uc):
+            row = uc_evs.iloc[n]
+            Ta_i = int(row["arrival_time"])
+            Td_i = int(row["departure_time"])
+            Sd_i = row["soc_departure"]
+            final_t = min(Td_i - 1, T - 1)
+            if final_t >= Ta_i:
+                self.model.addConstr(soc[scenario_idx, final_t, n] >= Sd_i)
 
     def add_cc_ev_constraints(self, *, 
                            ev_profiles: pd.DataFrame,

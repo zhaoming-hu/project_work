@@ -82,12 +82,12 @@ class ScenarioGenerator:
         uc_mask = df['ev_type'] == 'uc'
         cc_mask = df['ev_type'] == 'cc'
 
-        # UC：单独设置晚上到达（18:00-20:00），标记为 day，避免跨天逻辑
+        # UC：单独设置晚上到达（16:00-20:00），标记为 day，避免跨天逻辑
         num_uc = int(uc_mask.sum())
         if num_uc > 0:
             uc_arrival = rng.normal(18.0, 2.06, num_uc).clip(16.0, 20.0)
             df.loc[uc_mask, 'arrival_time'] = uc_arrival
-            df.loc[uc_mask, 'charging_type'] = 'day'
+            df.loc[uc_mask, 'charging_type'] = 'day'  
             df.loc[uc_mask, 'soc_arrival'] = rng.uniform(0.2, 0.35, num_uc)
             df.loc[uc_mask, 'soc_departure'] = rng.uniform(0.85, 0.95, num_uc)
 
@@ -193,31 +193,37 @@ class ScenarioGenerator:
             num_uc = int(uc_mask.sum())
             if num_uc > 0:
                 uc_arrival = self.rng.normal(18.0, 2.06, num_uc).clip(16.0, 20.0)
+                uc_departure = self.rng.normal(23.0, 2.06, num_uc).clip(23.0, 24.0)
+                uc_soc_arrival = self.rng.uniform(0.3, 0.35, num_uc).clip(0.2, 0.95)
+                uc_soc_departure = self.rng.uniform(0.85, 0.95, num_uc).clip(0.85, 0.95)
                 scenario.loc[uc_mask, 'arrival_time'] = uc_arrival
+                scenario.loc[uc_mask, 'departure_time'] = uc_departure
+                scenario.loc[uc_mask, 'soc_arrival'] = uc_soc_arrival
+                scenario.loc[uc_mask, 'soc_departure'] = uc_soc_departure
 
             # 如果输入数据使用了时间槽索引，则将连续小时时间转换为15分钟时间槽索引 (0-95)
-            if use_timeslot:
-                # 创建源时间列的副本
-                scenario['hour_arrival'] = scenario['arrival_time'].copy()
-                scenario['hour_departure'] = scenario['departure_time'].copy()
-                
-                # 转换到达时间：小时 → 时间槽索引
-                scenario['arrival_time'] = (scenario['arrival_time'] * 4).astype(int)
-                
-                # 特殊处理夜间充电的离开时间：
-                # 对于夜间充电，离开时间小于到达时间，表示跨天，需要加上96来表示第二天
-                scenario.loc[night_mask, 'departure_time'] = (scenario.loc[night_mask, 'departure_time'] * 4).astype(int) + 96
-                
-                # 对于白天充电，直接转换
-                scenario.loc[day_mask, 'departure_time'] = (scenario.loc[day_mask, 'departure_time'] * 4).astype(int)
-                
-                # 到达时间限制在正确范围内
-                scenario['arrival_time'] = scenario['arrival_time'].clip(0, 95)
-                
-                # 仅对白天充电的EV限制departure_time范围
-                scenario.loc[day_mask, 'departure_time'] = scenario.loc[day_mask, 'departure_time'].clip(0, 95)
-                # 对于跨天的夜间充电EV，保留其跨天信息，确保departure_time > 95
-                scenario.loc[night_mask, 'departure_time'] = scenario.loc[night_mask, 'departure_time'].clip(96, 191)
+            # if use_timeslot:
+            # 创建源时间列的副本
+            scenario['hour_arrival'] = scenario['arrival_time'].copy()
+            scenario['hour_departure'] = scenario['departure_time'].copy()
+            
+            # 转换到达时间：小时 → 时间槽索引
+            scenario['arrival_time'] = (scenario['arrival_time'] * 4).astype(int)
+            
+            # 特殊处理夜间充电的离开时间：
+            # 对于夜间充电，离开时间小于到达时间，表示跨天，需要加上96来表示第二天
+            scenario.loc[night_mask, 'departure_time'] = (scenario.loc[night_mask, 'departure_time'] * 4).astype(int) + 96
+            
+            # 对于白天充电，直接转换
+            scenario.loc[day_mask, 'departure_time'] = (scenario.loc[day_mask, 'departure_time'] * 4).astype(int)
+            
+            # 到达时间限制在正确范围内
+            scenario['arrival_time'] = scenario['arrival_time'].clip(0, 95)
+            
+            # 仅对白天充电的EV限制departure_time范围
+            scenario.loc[day_mask, 'departure_time'] = scenario.loc[day_mask, 'departure_time'].clip(0, 95)
+            # 对于跨天的夜间充电EV，保留其跨天信息，确保departure_time > 95
+            scenario.loc[night_mask, 'departure_time'] = scenario.loc[night_mask, 'departure_time'].clip(96, 191)
 
             scenarios.append(scenario)
         return scenarios
@@ -331,8 +337,8 @@ class ScenarioGenerator:
             agc_up_noise = self.rng.normal(1, 1, T)
             agc_dn_noise = self.rng.normal(1, 1, T)
             scenario = pd.DataFrame({
-                'agc_up': base_scenario['l_agc_up'] * agc_up_noise,
-                'agc_dn': base_scenario['l_agc_dn'] * agc_dn_noise
+                'agc_up': base_scenario['l_agc_up'] * agc_up_noise.clip(0.1, 0.9),
+                'agc_dn': base_scenario['l_agc_dn'] * agc_dn_noise.clip(0.1, 0.9)
             })
             scenarios.append(scenario)
 
@@ -627,7 +633,13 @@ class ScenarioGenerator1:
             num_uc = int(uc_mask.sum())
             if num_uc > 0:
                 uc_arrival = self.rng.normal(18.0, 2.06, num_uc).clip(16.0, 20.0)
+                uc_departure = self.rng.normal(23.0, 2.06, num_uc).clip(23.0, 24.0)
+                uc_soc_arrival = self.rng.uniform(0.3, 0.35, num_uc).clip(0.2, 0.95)
+                uc_soc_departure = self.rng.uniform(0.85, 0.95, num_uc).clip(0.85, 0.95)
                 scenario.loc[uc_mask, 'arrival_time'] = uc_arrival
+                scenario.loc[uc_mask, 'departure_time'] = uc_departure
+                scenario.loc[uc_mask, 'soc_arrival'] = uc_soc_arrival
+                scenario.loc[uc_mask, 'soc_departure'] = uc_soc_departure
 
             # 如果输入数据使用了时间槽索引，则将连续小时时间转换为15分钟时间槽索引 (0-95)
             if use_timeslot:

@@ -14,9 +14,9 @@ class V2GOptimizationModelCase1:
         capacity_reserves: pd.DataFrame,  # 每个时段的容量预留值DataFrame(timeslot, K_up, K_dn)
         beta: float,  #CVaR变量之一 在主函数中自己定义
         alpha: float,  #CVaR变量之一 在主函数中自己定义
-        P_es_max: float = 1.6,  # ES最大充放电功率1.6 MW
-        E_es_max: float = 3.2,  # ES最大能量容量3.2 MWh
-        E_es_init: float = 1.0,  # ES初始能量1.0 MWh
+        P_es_max: float = 0.08,  # ES最大充放电功率1.6 MW
+        E_es_max: float = 0.16,  # ES最大能量容量3.2 MWh
+        E_es_init: float = 0.08,  # ES初始能量1.0 MWh
         dod_max: float = 0.9,    # 最大允许DOD
         gamma: float = 0.3,      # 最终能量与初始能量偏差容忍率
         T: int = 96,
@@ -79,11 +79,11 @@ class V2GOptimizationModelCase1:
         F_ev_mil = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_ev_mil") # Regulation mileage income of EVs in hour t in scenario w (€)
         F_ev_deploy = self.model.addVars(self.num_scenarios, self.T, lb=-1e6, ub=1e6, name="F_ev_deploy") # RTM energy cost of EVs for deploying regulation in hour t in scenario w (€)
         F_es_deg = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="F_es_deg") # Degradation cost of ES in hour t in scenario w (€)
-        E_es = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=3.2, name="E_es") # Energy stored in ES in hour t in scenario w (MW)
+        E_es = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.E_es_max, name="E_es") # Energy stored in ES in hour t in scenario w (MW)
         P_ev_total = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1e6, name="P_ev_total")  # Total charging power of EVs in hour t in scenario w (MW)
-        P_es_ch = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1.6, name="P_es_ch") # Charging power of ES in hour t in scenario w (MW)
-        P_es_dis = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=1.6, name="P_es_dis") # Discharging power of ES in hour t in scenario w (MW)
-        P_es = self.model.addVars(self.num_scenarios, self.T, lb=-1.6, ub=1.6, name="P_es") # Expected power of ES in hour t in scenario w (MW)
+        P_es_ch = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es_ch") # Charging power of ES in hour t in scenario w (MW)
+        P_es_dis = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es_dis") # Discharging power of ES in hour t in scenario w (MW)
+        P_es = self.model.addVars(self.num_scenarios, self.T, lb=-1.6, ub=self.P_es_max, name="P_es") # Expected power of ES in hour t in scenario w (MW)
         mu_es_ch = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="mu_es_ch") # Binary variable for charging power of entire ES in hour t in scenario w
         mu_es_dis = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="mu_es_dis") # Binary variable for discharging power of entire ES in hour t in scenario w
 
@@ -107,7 +107,8 @@ class V2GOptimizationModelCase1:
         P_ev0_uc = self.model.addVars(keys_uc, lb=0, ub=1e6, name="P_ev0_uc") # PSP of uc individual EV i in hour t in scenario w (MW)
         R_ev_up_i = self.model.addVars(keys_cc, lb=0, ub=6.6e-3, name="R_ev_up_i") # Upward regulation capacity provided by controllable individual EV i in hour t in scenario w (MW)
         R_ev_dn_i = self.model.addVars(keys_cc, lb=0, ub=6.6e-3, name="R_ev_dn_i") # Downward regulation capacity provided by controllable individual EV i in hour t in scenario w (MW)
-        soc = self.model.addVars(keys_cc, lb=0, ub=1, name="soc") # SOC of individual EV i in hour t in scenario w
+        soc_cc = self.model.addVars(keys_cc, lb=0, ub=1, name="soc_cc") # SOC of individual cc EV i in hour t in scenario w
+        soc_uc = self.model.addVars(keys_uc, lb=0, ub=1, name="soc_uc") # SOC of individual cc EV i in hour t in scenario w
         
         # 新增：ES2对每个可控EV的充放电功率变量  在case1里 不区分ES1/2 全是ES2的功能体现 所以写成了P_es_ch_i和P_es_dis_i
         P_es_ch_i = self.model.addVars(keys_cc, lb=0, ub=1.6, name="P_es_ch_i") # ES2 charging power allocated to controllable EV i in hour t in scenario w (MW)
@@ -135,9 +136,11 @@ class V2GOptimizationModelCase1:
             constraints.add_uc_ev_constraints(
                 ev_profiles=ev_profiles,
                 T=self.T,
+                delta_t=self.delta_t,
                 P_ev_uc=P_ev_uc,
                 P_ev0_uc=P_ev0_uc,
                 scenario_idx=w,
+                soc = soc_uc,
                 N_uc=N_uc
             )
             
@@ -148,7 +151,7 @@ class V2GOptimizationModelCase1:
                 T=self.T,
                 scenario_idx=w,
                 P_ev_cc=P_ev_cc,
-                soc=soc,
+                soc=soc_cc,
                 P_ev0_cc=P_ev0_cc,
                 R_ev_up_i=R_ev_up_i,
                 R_ev_dn_i=R_ev_dn_i,

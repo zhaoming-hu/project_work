@@ -16,7 +16,7 @@ from plot import plot_es_regulation_bids
 from plot import plot_es_energy_change
 from plot import plot_ev_reg_bids_and_capacity_price
 from plot import plot_agc_signal_both
-
+from plot import plot_es_energy_change_per_scenario
 
 def get_case_selection():
     """获取用户选择的case"""
@@ -74,8 +74,8 @@ def main():
         seed = 42
         data_loader = DataLoader(data_dir="../data")
         # 由场景生成器统一生成EV基准数据（使用同一seed）
-        scenario_gen = ScenarioGenerator(num_scenarios=100, num_clusters=2, seed=seed)
-        ev_profiles = scenario_gen.generate_base_ev_profiles(num_evs=10, discount=0.2, charging_price=180, use_timeslot=True)
+        scenario_gen = ScenarioGenerator(num_scenarios=100, num_clusters=4, seed=seed)
+        ev_profiles = scenario_gen.generate_base_ev_profiles(num_evs=20, discount=0.2, charging_price=180, use_timeslot=True)
         rtm_price = data_loader.load_rtm_price()
         dam_price = data_loader.load_dam_price()
         agc_signal = data_loader.load_agc_signal()
@@ -124,18 +124,25 @@ def main():
         print(f"缩减场景时出错: {e}")
         return
 
-    # 打印缩减后场景0的AGC信号和容量预留K_dn，K_up
+    # 打印缩减后场景的AGC信号和容量预留K_dn，K_up
     # try:
     #     if len(reduced_agc_scenarios) > 0:
-    #         print("\n===== 场景0的AGC信号和容量预留K_dn K_up（缩减后） =====")
-    #         agc0 = reduced_agc_scenarios[0]
-    #         print(f"长度: {len(agc0)}")
-    #         print("agc_up:", agc0['agc_up'].tolist())
-    #         print("agc_dn:", agc0['agc_dn'].tolist())
-    #         print("K_up:", capacity_reserves['K_up'].tolist())
-    #         print("K_dn:", capacity_reserves['K_dn'].tolist())
+    #         # 使用 for 循环和 enumerate 遍历所有场景
+    #         # w 会是场景的索引 (0, 1, 2, ...)
+    #         # agc_scenario 会是每个场景的数据 (相当于之前的 agc0)
+    #         for w, agc_scenario in enumerate(reduced_agc_scenarios):
+    #             # 使用 f-string 动态地显示当前场景编号
+    #             print(f"\n===== 场景{w}的AGC信号和容量预留K_dn K_up（缩减后） =====")
+    #             print(f"长度: {len(agc_scenario)}")
+    #             # 使用循环变量 agc_scenario 来访问当前场景的数据
+    #             print("agc_up:", agc_scenario['agc_up'].tolist())
+    #             print("agc_dn:", agc_scenario['agc_dn'].tolist())
+    #             # capacity_reserves 是所有场景共享的，因此在每个场景下都打印出来以作参考
+    #             print("K_up:", capacity_reserves['K_up'].tolist())
+    #             print("K_dn:", capacity_reserves['K_dn'].tolist())
     #     else:
-    #         print("未找到缩减后的AGC场景，无法打印场景0的AGC信号")
+    #         # 修改提示信息，因为现在不止是场景0了
+    #         print("未找到缩减后的AGC场景，无法打印。")
     # except Exception as e:
     #     print(f"打印AGC信号时出错: {e}")
     
@@ -152,8 +159,8 @@ def main():
     # 5. 构建并求解优化模型
     try:
         # 设置CVaR参数
-        beta = 0.9 # 期望收益和CVaR的权重系数 越大越保守
-        alpha = 0.5  # 置信水平 代表利润大于sigma的概率
+        beta = 0.1 # 期望收益和CVaR的权重系数 越大越保守
+        alpha = 0.5  # 置信水平 代表利润大于等于sigma的概率
 
         # 创建对应的模型
         print(f"\n正在创建 Case {selected_case} 模型...")
@@ -207,7 +214,7 @@ def main():
         #     print("未找到SOC数据")
 
         # Case 2,3,4有ES
-        if selected_case in [2, 3, 4]:
+        if selected_case in [1, 2, 3, 4]:
             print("\n----- ES收益与成本 -----")
             print(f"ES调频容量收入: {results.get('es_cap_revenue', 0):.2f}")
             print(f"ES调频里程收入: {results.get('es_mil_revenue', 0):.2f}")
@@ -232,13 +239,21 @@ def main():
             print(f"图像已保存到 {os.path.join(output_dir, 'ev_bids_and_price.png')}")
 
             print("\n正在绘制EV调频投标和容量价格图像...")
-            plot_ev_reg_bids_and_capacity_price(
+            plot_ev_regulation_bids(
                 model,
-                capacity_price,
                 output_path=os.path.join(output_dir, "ev_regulation_bids_and_capacity_price.png"),
                 case_name=f"Case {selected_case}"
             )
             print(f"图像已保存到 {os.path.join(output_dir, 'ev_regulation_bids_and_capacity_price.png')}")
+
+            print("\n正在绘制每个场景的ES变化图像...")
+            plot_es_energy_change_per_scenario(
+                model,
+                dam_price,
+                capacity_price,
+                output_path=os.path.join(output_dir, "es_energy_change_per_senario.png"),
+                case_name=f"Case {selected_case}"
+            )
             
             # 绘制ES套利图像 (Case 2, 3有ES套利)
             if selected_case in [2, 3]:
@@ -250,7 +265,7 @@ def main():
                 )
                 print(f"图像已保存到 {os.path.join(output_dir, 'es_bids_and_price.png')}")
 
-            if selected_case in [2, 3, 4]:
+            if selected_case in [1, 2, 3, 4]:
                 print("\n正在绘制ES energy变化图像...")
                 plot_es_energy_change(
                     model,
