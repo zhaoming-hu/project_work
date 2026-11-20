@@ -1,6 +1,7 @@
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
+import numpy as np
 from typing import Dict, List
 from constraints import V2GConstraintsCase1
 
@@ -14,9 +15,9 @@ class V2GOptimizationModelCase1:
         capacity_reserves: pd.DataFrame,  # 每个时段的容量预留值DataFrame(timeslot, K_up, K_dn)
         beta: float,  #CVaR变量之一 在主函数中自己定义
         alpha: float,  #CVaR变量之一 在主函数中自己定义
-        P_es_max: float = 0.08,  # ES最大充放电功率1.6 MW
-        E_es_max: float = 0.16,  # ES最大能量容量3.2 MWh
-        E_es_init: float = 0.08,  # ES初始能量1.0 MWh
+        P_es_max: float = 0.9,  # ES最大充放电功率1.6（MW）
+        E_es_max: float = 1.8,  # ES最大能量容量3.2（MWh）
+        E_es_init: float = 0.9,  # ES初始能量1.0（MWh）
         dod_max: float = 0.9,    # 最大允许DOD
         gamma: float = 0.3,      # 最终能量与初始能量偏差容忍率
         T: int = 96,
@@ -62,7 +63,7 @@ class V2GOptimizationModelCase1:
 
         # 电池退化相关变量
         dod = self.model.addVar(lb=1e-6, ub=0.9, name="DOD")
-        L = self.model.addVar(lb=5000, ub=1e6, name="N_cycle")  # 与约束保持一致
+        L = self.model.addVar(lb=1, ub=1e6, name="N_cycle")  # 与约束保持一致
 
         # 定义主决策变量 - 场景无关的投标决策变量
         P_ev0_total = self.model.addVars(self.T, lb=-1e6, ub=1e6, name="P_ev0_total") # 能源投标 - 场景无关
@@ -84,8 +85,32 @@ class V2GOptimizationModelCase1:
         P_es_ch = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es_ch") # Charging power of ES in hour t in scenario w (MW)
         P_es_dis = self.model.addVars(self.num_scenarios, self.T, lb=0, ub=self.P_es_max, name="P_es_dis") # Discharging power of ES in hour t in scenario w (MW)
         P_es = self.model.addVars(self.num_scenarios, self.T, lb=-1.6, ub=self.P_es_max, name="P_es") # Expected power of ES in hour t in scenario w (MW)
-        mu_es_ch = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="mu_es_ch") # Binary variable for charging power of entire ES in hour t in scenario w
-        mu_es_dis = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="mu_es_dis") # Binary variable for discharging power of entire ES in hour t in scenario w
+        # mu_es_ch = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="mu_es_ch") # Binary variable for charging power of entire ES in hour t in scenario w
+        # mu_es_dis = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="mu_es_dis") # Binary variable for discharging power of entire ES in hour t in scenario w
+        y_es = self.model.addVars(self.num_scenarios, self.T, vtype=GRB.BINARY, name="y_es") # Binary variable for charging/discharging power of entire ES in hour t in scenario w
+
+        # 预计算在场数组 presence_cc[presence_uc]，形状 [W, T]
+        self.presence_cc = np.zeros((self.num_scenarios, self.T), dtype=int)
+        self.presence_uc = np.zeros((self.num_scenarios, self.T), dtype=int)
+        for w in range(self.num_scenarios):
+            ev_df = self.reduced_ev_scenarios[w]
+            for _, row in ev_df.iterrows():
+                Ta = int(row.get('arrival_time', 0))
+                Td = int(row.get('departure_time', 0))
+                is_overnight = (row.get('charging_type') == 'night')
+                if row.get('ev_type') == 'cc':
+                    target = self.presence_cc[w]
+                else:
+                    target = self.presence_uc[w]
+                if is_overnight:
+                    actual_td = Td - self.T
+                    for t in range(self.T):
+                        if t >= Ta or t < max(0, actual_td):
+                            target[t] += 1
+                else:
+                    for t in range(self.T):
+                        if Ta <= t < min(Td, self.T):
+                            target[t] += 1
 
         # 动态生成EV相关变量keys  三维变量
         keys_cc = []
@@ -101,28 +126,42 @@ class V2GOptimizationModelCase1:
                     keys_uc.append((w, t, n))
         
         # 用keys方式创建变量
-        P_ev_cc = self.model.addVars(keys_cc, lb=0, ub=0.0066, name="P_ev_cc") # Charging power of cc individual EV i in hour t in scenario w (MW)
-        P_ev_uc = self.model.addVars(keys_uc, lb=0, ub=0.0066, name="P_ev_uc") # Charging power of uc individual EV i in hour t in scenario w (MW)
+        P_ev_cc = self.model.addVars(keys_cc, lb=-0.022, ub=0.022, name="P_ev_cc") # Charging power of cc individual EV i in hour t in scenario w (MW)
+        P_ev_uc = self.model.addVars(keys_uc, lb=0, ub=0.022, name="P_ev_uc") # Charging power of uc individual EV i in hour t in scenario w (MW)
         P_ev0_cc = self.model.addVars(keys_cc, lb=0, ub=1e6, name="P_ev0_cc") # PSP of cc individual EV i in hour t in scenario w (MW)
         P_ev0_uc = self.model.addVars(keys_uc, lb=0, ub=1e6, name="P_ev0_uc") # PSP of uc individual EV i in hour t in scenario w (MW)
-        R_ev_up_i = self.model.addVars(keys_cc, lb=0, ub=6.6e-3, name="R_ev_up_i") # Upward regulation capacity provided by controllable individual EV i in hour t in scenario w (MW)
-        R_ev_dn_i = self.model.addVars(keys_cc, lb=0, ub=6.6e-3, name="R_ev_dn_i") # Downward regulation capacity provided by controllable individual EV i in hour t in scenario w (MW)
+        R_ev_up_i = self.model.addVars(keys_cc, lb=0, ub=22e-3, name="R_ev_up_i") # Upward regulation capacity provided by controllable individual EV i in hour t in scenario w (MW)
+        R_ev_dn_i = self.model.addVars(keys_cc, lb=0, ub=22e-3, name="R_ev_dn_i") # Downward regulation capacity provided by controllable individual EV i in hour t in scenario w (MW)
         soc_cc = self.model.addVars(keys_cc, lb=0, ub=1, name="soc_cc") # SOC of individual cc EV i in hour t in scenario w
         soc_uc = self.model.addVars(keys_uc, lb=0, ub=1, name="soc_uc") # SOC of individual cc EV i in hour t in scenario w
         
+        # Binary mutual exclusion per (w,t,n)
+        # mu_ev_ch = self.model.addVars(keys_cc, vtype=GRB.BINARY, name="mu_ev_ch")
+        # mu_ev_dis = self.model.addVars(keys_cc, vtype=GRB.BINARY, name="mu_ev_dis")
+        y_ev = self.model.addVars(keys_cc, vtype=GRB.BINARY, name="y_ev")  # 每辆可控EV逐时段
+
+        # Add controllable EV charge/discharge component variables for V2G
+        P_ev_cc_ch = self.model.addVars(keys_cc, lb=0, name="P_ev_cc_ch")
+        P_ev_cc_dis = self.model.addVars(keys_cc, lb=0, name="P_ev_cc_dis")
+        # Effective power after efficiency piecewise
+        P_ev_cc_ch_eff = self.model.addVars(keys_cc, lb=0, name="P_ev_cc_ch_eff")
+        P_ev_cc_dis_eff = self.model.addVars(keys_cc, lb=0, name="P_ev_cc_dis_eff")
+
         # 新增：ES2对每个可控EV的充放电功率变量  在case1里 不区分ES1/2 全是ES2的功能体现 所以写成了P_es_ch_i和P_es_dis_i
-        P_es_ch_i = self.model.addVars(keys_cc, lb=0, ub=1.6, name="P_es_ch_i") # ES2 charging power allocated to controllable EV i in hour t in scenario w (MW)
-        P_es_dis_i = self.model.addVars(keys_cc, lb=0, ub=1.6, name="P_es_dis_i") # ES2 discharging power allocated to controllable EV i in hour t in scenario w (MW)
+        P_es_ch_i = self.model.addVars(keys_cc, lb=0, ub=self.P_es_max, name="P_es_ch_i") # ES2 charging power allocated to controllable EV i in hour t in scenario w (MW)
+        P_es_dis_i = self.model.addVars(keys_cc, lb=0, ub=self.P_es_max, name="P_es_dis_i") # ES2 discharging power allocated to controllable EV i in hour t in scenario w (MW)
               
         # 6. 添加约束
 
+        d_star = 0.8  # 代表性 DoD，可做成超参数
+        lambda_deg = self.C_es / (2.0 * self.eta_ch * self.eta_dis * self.N0 * (d_star ** (1.0 + self.beta_ES)))
         # 电池退化约束 
-        constraints.add_battery_degradation_constraints(
-                                        d = dod,
-                                        L = L, 
-                                        N0 = self.N0,  
-                                        beta = self.beta_ES 
-                                        )
+        # constraints.add_battery_degradation_constraints(
+        #                                 d = dod,
+        #                                 L = L, 
+        #                                 N0 = self.N0,  
+        #                                 beta = self.beta_ES 
+        #                                 )
         
         for w in range(self.num_scenarios):
             ev_profiles = self.reduced_ev_scenarios[w]
@@ -132,7 +171,8 @@ class V2GOptimizationModelCase1:
             uc_evs = ev_profiles[ev_profiles['ev_type'] == 'uc'].reset_index(drop=True)
             N_cc = len(cc_evs)
             N_uc = len(uc_evs)
-            # 不可控EV约束
+
+           # 不可控EV约束
             constraints.add_uc_ev_constraints(
                 ev_profiles=ev_profiles,
                 T=self.T,
@@ -151,6 +191,10 @@ class V2GOptimizationModelCase1:
                 T=self.T,
                 scenario_idx=w,
                 P_ev_cc=P_ev_cc,
+                P_ev_cc_ch=P_ev_cc_ch,
+                P_ev_cc_dis=P_ev_cc_dis,
+                P_ev_cc_ch_eff=P_ev_cc_ch_eff,
+                P_ev_cc_dis_eff=P_ev_cc_dis_eff,
                 soc=soc_cc,
                 P_ev0_cc=P_ev0_cc,
                 R_ev_up_i=R_ev_up_i,
@@ -159,7 +203,8 @@ class V2GOptimizationModelCase1:
                 R_ev_dn=R_ev_dn,
                 K_up_values=self.capacity_reserves['K_up'].values,
                 K_dn_values=self.capacity_reserves['K_dn'].values,
-                N_cc=N_cc
+                N_cc=N_cc,
+                y_ev=y_ev,
             )
             
             #EV fleet约束 - 使用场景无关的P_ev0_total
@@ -176,7 +221,7 @@ class V2GOptimizationModelCase1:
                 N_uc=N_uc
             )
                 
-            # ES2约束
+            # ES约束
             constraints.add_es_constraints(
                 T=self.T,
                 scenario_idx=w,
@@ -184,8 +229,7 @@ class V2GOptimizationModelCase1:
                 P_es_ch=P_es_ch,
                 P_es_dis=P_es_dis,
                 E_es=E_es,
-                mu_es_ch=mu_es_ch,
-                mu_es_dis=mu_es_dis,
+                y_es=y_es,
                 P_es_max=self.P_es_max,
                 E_es_max=self.E_es_max,
                 E_es_init=self.E_es_init,
@@ -214,7 +258,14 @@ class V2GOptimizationModelCase1:
                 N_cc=N_cc
             )
 
-
+            # 两车一桩功率约束
+            constraints.add_charge_station_constraints(
+                ev_profiles=ev_profiles,
+                scenario_idx=w,
+                T=self.T,
+                P_ev_cc_ch=P_ev_cc_ch,
+                P_ev_cc_dis=P_ev_cc_dis,
+            )
         
         # 场景收益列表 - 用于CVaR计算
         scenario_revenues = []
@@ -240,7 +291,7 @@ class V2GOptimizationModelCase1:
                 # EVA卖电收入（分开cc和uc因为他们充电价格不一样）
                 self.model.addConstr(
                     F_ev_sell[w, t] == (
-                        gp.quicksum(P_ev_cc[w, t, n] * cc_evs.iloc[n]['charging_price'] for n in range(N_cc)) +
+                        gp.quicksum(P_ev_cc_ch[w, t, n] * cc_evs.iloc[n]['charging_price'] for n in range(N_cc)) +
                         gp.quicksum(P_ev_uc[w, t, n] * uc_evs.iloc[n]['charging_price'] for n in range(N_uc))
                     ) * self.delta_t
                 )
@@ -266,8 +317,7 @@ class V2GOptimizationModelCase1:
                 # 储能系统退化成本（支出项，需从总收益中扣除）
                 # 按照原文公式：F_es_deg = C(P_es_ch + P_es_dis) / (2L*d*η_ch*η_dis)
                 self.model.addConstr(
-                    F_es_deg[w, t] == self.C_es * (P_es_ch[w, t] + P_es_dis[w, t]) / 
-                    (2 * L * dod * self.eta_ch * self.eta_dis)
+                    F_es_deg[w, t] == lambda_deg * (P_es_ch[w, t] + P_es_dis[w, t])
                 )
 
                 expr += (F_ev_charging[w, t]  + F_ev_cap[w, t] + F_ev_mil[w, t] - F_ev_deploy[w, t] - F_es_deg[w, t] )
@@ -299,38 +349,48 @@ class V2GOptimizationModelCase1:
     def solve(self):
         self.build_model()
         # 添加Gurobi参数设置，用于诊断
-        self.model.setParam('NumericFocus', 3)  # 提高数值精度
-        self.model.setParam('FeasibilityTol', 1e-6)  # 可行性容忍度
-        self.model.setParam('IntFeasTol', 1e-6)  # 整数可行性容忍度
-        self.model.setParam('MarkowitzTol', 0.01)  # 增加数值稳定性
-        self.model.setParam('Method', 2)  # 求解方法设为barrier
-        self.model.setParam('Crossover', 0)  # 关闭crossover以提高求解效率
+        self.model.setParam('NonConvex', 2)   # 保险；A 已线性化但留着无害
+        self.model.setParam('Presolve', 2)
+        self.model.setParam('Heuristics', 0.5)
+        self.model.setParam('RINS', 20)
+        self.model.setParam('MIPFocus', 1)     # 先找可行解
+        self.model.setParam('MIPGap', 0.05)    # 先放宽；跑通后再收紧
+        # self.model.setParam('TimeLimit', 7200) # 可按需调整
+        self.model.setParam('NodefileStart', 1.0)
+        self.model.setParam('Threads', 16)
+        self.model.setParam('Cuts', 3)
         self.model.optimize()
         
-        # 无论什么情况都写出标准LP文件
-        # self.model.computeIIS()
+        # 写出标准LP文件（始终可写）
         self.model.write("model.lp")
+        
+        # 先根据状态分支，再安全访问 SolCount
+        if self.model.status in [GRB.OPTIMAL, GRB.SUBOPTIMAL, GRB.TIME_LIMIT]:
+            try:
+                if getattr(self.model, "SolCount", 0) and getattr(self.model, "SolCount", 0) > 0:
+                    self.model.write("model.sol")
+            except Exception:
+                pass
+            if self.model.status == GRB.OPTIMAL:
+                return self.get_results()
+        
         # 如果不可行，写出IIS文件
         if self.model.status == GRB.INFEASIBLE:
             print("模型不可行，正在写出IIS约束...")
             self.model.computeIIS()
             self.model.write("model.ilp")
             print("IIS已写入model.ilp")
-        elif self.model.status == GRB.OPTIMAL:
-            return self.get_results()
         elif self.model.status == GRB.INF_OR_UNBD:
             print("模型不可行或无界，尝试进一步诊断...")
             self.model.setParam("InfUnbdInfo", 1)
             self.model.optimize()
             self.model.write("model.lp")
-            if self.model.status== GRB.INFEASIBLE:
+            if self.model.status == GRB.INFEASIBLE:
                 print("模型不可行，正在写出IIS约束...")
                 self.model.computeIIS()
+                self.model.write("model.ilp")
                 print("IIS已写入model.ilp")
             else:
-                self.model.setParam("DualReductions", 0)
-                self.model.optimize()
-                print(self.model.status)
                 raise Exception("优化问题无解（无界）")
         else:
             raise Exception("优化问题无解")
@@ -350,7 +410,7 @@ class V2GOptimizationModelCase1:
             for t in range(self.T):
                 ev_cap_revenue += pi * self.model.getVarByName(f"F_ev_cap[{w},{t}]").X
                 ev_mil_revenue += pi * self.model.getVarByName(f"F_ev_mil[{w},{t}]").X
-                ev_charging_revenue += pi * self.model.getVarByName(f"F_ev_charging[{w},{t}]").X
+                ev_charging_revenue += pi * self.model.getVarByName(f"F_ev_sell[{w},{t}]").X
                 ev_dam_cost += pi * self.model.getVarByName(f"F_ev_buy[{w},{t}]").X
                 ev_deploy_cost += pi * self.model.getVarByName(f"F_ev_deploy[{w},{t}]").X
                 es_deg_cost += pi * self.model.getVarByName(f"F_es_deg[{w},{t}]").X
@@ -393,12 +453,12 @@ class V2GOptimizationModelCase1:
             energy_bids[t] = self.model.getVarByName(f"P_ev0_total[{t}]").X
             reg_up_bids[t] = self.model.getVarByName(f"R_ev_up[{t}]").X
             reg_dn_bids[t] = self.model.getVarByName(f"R_ev_dn[{t}]").X
-            print(f"t: {t}, P_ev0_total: {energy_bids[t]}")
+            # print(f"t: {t}, P_ev0_total: {energy_bids[t]}")
             # agc_scenario = self.reduced_agc_scenarios[w]
             # print(f"t: {t}, P_regulation: {reg_dn_bids[t] * agc_scenario['agc_dn'].iloc[t] - reg_up_bids[t] * agc_scenario['agc_up'].iloc[t]}")
 
         # 输出场景0的EV充电功率
-        w = 0  # 场景0
+        # w = 0  # 场景0
         # print("\n输出场景0的EV充电功率:")
         # for t in range(self.T):
         #     print(f"t: {t}, P_ev_total[t]: {self.model.getVarByName(f'P_ev_total[{w},{t}]').X}")

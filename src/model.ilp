@@ -1,0 +1,65 @@
+\ Model V2G_Optimization_Case3_copy
+\ LP format - for model browsing. Use MPS format to capture full model detail.
+\ Signature: 0x8a5bc61856e1381b
+Maximize
+ 
+Subject To
+ R246: P_ev_uc[0,82,0] = 0.00844562115481536
+ R247: - P_ev_uc[0,82,0] + P_ev0_uc[0,82,0] = 0
+ R535: P_ev_uc[0,82,1] = 0.0133164516732059
+ R536: - P_ev_uc[0,82,1] + P_ev0_uc[0,82,1] = 0
+ R824: P_ev_uc[0,82,2] = 0
+ R825: - P_ev_uc[0,82,2] + P_ev0_uc[0,82,2] = 0
+ R1113: P_ev_uc[0,82,3] = 0
+ R1114: - P_ev_uc[0,82,3] + P_ev0_uc[0,82,3] = 0
+ R7262: P_ev0_cc[0,82,0] = 0
+ R7270: P_ev0_cc[0,82,1] = 0
+ R7278: P_ev0_cc[0,82,2] = 0
+ R7286: P_ev0_cc[0,82,3] = 0
+ R7294: P_ev0_cc[0,82,4] = 0
+ R7302: P_ev0_cc[0,82,5] = 0
+ R8369: P_ev0_total[82] - P_ev0_cc[0,82,0] - P_ev0_cc[0,82,1]
+   - P_ev0_cc[0,82,2] - P_ev0_cc[0,82,3] - P_ev0_cc[0,82,4]
+   - P_ev0_cc[0,82,5] - P_ev0_uc[0,82,0] - P_ev0_uc[0,82,1]
+   - P_ev0_uc[0,82,2] - P_ev0_uc[0,82,3] = 0
+ R12146: P_ev_uc[1,82,0] = 0.0136301983707304
+ R12147: - P_ev_uc[1,82,0] + P_ev0_uc[1,82,0] = 0
+ R12724: P_ev_uc[1,82,2] = 0.022
+ R12725: - P_ev_uc[1,82,2] + P_ev0_uc[1,82,2] = 0
+ R19162: P_ev0_cc[1,82,0] = 0
+ R19170: P_ev0_cc[1,82,1] = 0
+ R19178: P_ev0_cc[1,82,2] = 0
+ R19186: P_ev0_cc[1,82,3] = 0
+ R19194: P_ev0_cc[1,82,4] = 0
+ R19202: P_ev0_cc[1,82,5] = 0
+ R20269: P_ev0_total[82] - P_ev0_cc[1,82,0] - P_ev0_cc[1,82,1]
+   - P_ev0_cc[1,82,2] - P_ev0_cc[1,82,3] - P_ev0_cc[1,82,4]
+   - P_ev0_cc[1,82,5] - P_ev0_uc[1,82,0] - P_ev0_uc[1,82,1]
+   - P_ev0_uc[1,82,2] - P_ev0_uc[1,82,3] = 0
+Bounds
+ P_ev0_total[82] free
+ P_ev_uc[0,82,0] free
+ P_ev_uc[0,82,1] free
+ P_ev_uc[0,82,2] free
+ P_ev_uc[0,82,3] free
+ P_ev_uc[1,82,0] free
+ P_ev_uc[1,82,2] free
+ P_ev0_cc[0,82,0] free
+ P_ev0_cc[0,82,1] free
+ P_ev0_cc[0,82,2] free
+ P_ev0_cc[0,82,3] free
+ P_ev0_cc[0,82,4] free
+ P_ev0_cc[0,82,5] free
+ P_ev0_cc[1,82,0] free
+ P_ev0_cc[1,82,1] free
+ P_ev0_cc[1,82,2] free
+ P_ev0_cc[1,82,3] free
+ P_ev0_cc[1,82,4] free
+ P_ev0_cc[1,82,5] free
+ P_ev0_uc[0,82,0] free
+ P_ev0_uc[0,82,1] free
+ P_ev0_uc[0,82,2] free
+ P_ev0_uc[0,82,3] free
+ P_ev0_uc[1,82,0] free
+ P_ev0_uc[1,82,2] free
+End

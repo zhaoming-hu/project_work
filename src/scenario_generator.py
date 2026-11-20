@@ -72,8 +72,8 @@ class ScenarioGenerator:
         df['soc_departure'] = 0.0
         df['soc_max'] = 0.95
         df['soc_min'] = 0.1
-        df['battery_capacity'] = 0.028  # MWh（28 kWh）
-        df['max_charge_power'] = 0.0066  # MW（6.6 kW）
+        df['battery_capacity'] = 0.06  # MWh（60 kWh）
+        df['max_charge_power'] = 0.022  # MW（22 kW）
         df['efficiency'] = 0.95
 
         # 掩码
@@ -82,10 +82,10 @@ class ScenarioGenerator:
         uc_mask = df['ev_type'] == 'uc'
         cc_mask = df['ev_type'] == 'cc'
 
-        # UC：单独设置晚上到达（16:00-20:00），标记为 day，避免跨天逻辑
+        # UC：单独设置晚上到达（16:00-19:00），标记为 day，避免跨天逻辑
         num_uc = int(uc_mask.sum())
         if num_uc > 0:
-            uc_arrival = rng.normal(18.0, 2.06, num_uc).clip(16.0, 20.0)
+            uc_arrival = rng.normal(17.5, 2.06, num_uc).clip(16.0, 19.0)
             df.loc[uc_mask, 'arrival_time'] = uc_arrival
             df.loc[uc_mask, 'charging_type'] = 'day'  
             df.loc[uc_mask, 'soc_arrival'] = rng.uniform(0.2, 0.35, num_uc)
@@ -95,8 +95,8 @@ class ScenarioGenerator:
         day_cc_mask = day_mask & cc_mask
         num_day_cc = int(day_cc_mask.sum())
         if num_day_cc > 0:
-            df.loc[day_cc_mask, 'arrival_time'] = rng.normal(8.82, 1.08, num_day_cc).clip(7.5, 10.5)
-            df.loc[day_cc_mask, 'departure_time'] = rng.normal(18.55, 2.06, num_day_cc).clip(16.0, 21.0)
+            df.loc[day_cc_mask, 'arrival_time'] = rng.normal(8.82, 1.08, num_day_cc).clip(8.0, 10.0)
+            df.loc[day_cc_mask, 'departure_time'] = rng.normal(16.55, 2.06, num_day_cc).clip(16.0, 18.0)
             df.loc[day_cc_mask, 'soc_arrival'] = rng.uniform(0.2, 0.35, num_day_cc)
             df.loc[day_cc_mask, 'soc_departure'] = rng.uniform(0.85, 0.95, num_day_cc)
 
@@ -104,8 +104,8 @@ class ScenarioGenerator:
         night_cc_mask = night_mask & cc_mask
         num_night_cc = int(night_cc_mask.sum())
         if num_night_cc > 0:
-            df.loc[night_cc_mask, 'arrival_time'] = rng.normal(22.91, 3.2, num_night_cc).clip(20.9, 24.0)
-            df.loc[night_cc_mask, 'departure_time'] = rng.normal(8.95, 1.4, num_night_cc).clip(7.0, 10.0)
+            df.loc[night_cc_mask, 'arrival_time'] = rng.normal(16.91, 3.2, num_night_cc).clip(16.0, 18.0)
+            df.loc[night_cc_mask, 'departure_time'] = rng.normal(4.95, 1.4, num_night_cc).clip(4.0, 6.0)
             df.loc[night_cc_mask, 'soc_arrival'] = rng.uniform(0.2, 0.35, num_night_cc)
             df.loc[night_cc_mask, 'soc_departure'] = rng.uniform(0.85, 0.95, num_night_cc)
 
@@ -178,22 +178,22 @@ class ScenarioGenerator:
             scenario['charging_price'] = ev_profiles['charging_price'].values
             
             # 为白天充电的EV生成场景参数（连续小时时间）
-            scenario.loc[day_mask, 'arrival_time'] = self.rng.normal(8.82, 1.08, num_day_evs).clip(7.5, 10.5)
-            scenario.loc[day_mask, 'departure_time'] = self.rng.normal(18.55, 2.06, num_day_evs).clip(16.0, 21.0)
+            scenario.loc[day_mask, 'arrival_time'] = self.rng.normal(8.82, 1.08, num_day_evs).clip(8.0, 10.0)
+            scenario.loc[day_mask, 'departure_time'] = self.rng.normal(16.55, 2.06, num_day_evs).clip(16.0, 18.0)
             scenario.loc[day_mask, 'soc_arrival'] = self.rng.uniform(0.2, 0.35, num_day_evs).clip(0.2, 0.35)
             scenario.loc[day_mask, 'soc_departure'] = self.rng.uniform(0.85, 0.95, num_day_evs).clip(0.85, 0.95)
             
             # 为夜间充电的EV生成场景参数（连续小时时间）
-            scenario.loc[night_mask, 'arrival_time'] = self.rng.normal(22.91, 3.2, num_night_evs).clip(20.9, 24.0)
-            scenario.loc[night_mask, 'departure_time'] = self.rng.normal(8.95, 1.4, num_night_evs).clip(7.0, 10.0)
+            scenario.loc[night_mask, 'arrival_time'] = self.rng.normal(16.91, 3.2, num_night_evs).clip(16.0, 18.0)
+            scenario.loc[night_mask, 'departure_time'] = self.rng.normal(4.95, 1.4, num_night_evs).clip(4.0, 6.0)
             scenario.loc[night_mask, 'soc_arrival'] = self.rng.uniform(0.2, 0.35, num_night_evs).clip(0.2, 0.35)
             scenario.loc[night_mask, 'soc_departure'] = self.rng.uniform(0.85, 0.95, num_night_evs).clip(0.85, 0.95)
 
-            # 覆盖 UC 到达时间：正态分布并截断到傍晚 16:00-20:00
+            # 覆盖 UC 到达时间：正态分布并截断到傍晚 16:00-19:00
             num_uc = int(uc_mask.sum())
             if num_uc > 0:
-                uc_arrival = self.rng.normal(18.0, 2.06, num_uc).clip(16.0, 20.0)
-                uc_departure = self.rng.normal(23.0, 2.06, num_uc).clip(23.0, 24.0)
+                uc_arrival = self.rng.normal(18.5, 2.06, num_uc).clip(18.0, 19.0)
+                uc_departure = self.rng.normal(22.5, 2.06, num_uc).clip(22.0, 23.0)
                 uc_soc_arrival = self.rng.uniform(0.3, 0.35, num_uc).clip(0.2, 0.95)
                 uc_soc_departure = self.rng.uniform(0.85, 0.95, num_uc).clip(0.85, 0.95)
                 scenario.loc[uc_mask, 'arrival_time'] = uc_arrival
@@ -488,8 +488,8 @@ class ScenarioGenerator1:
         df['soc_departure'] = 0.0
         df['soc_max'] = 0.95
         df['soc_min'] = 0.1
-        df['battery_capacity'] = 0.028  # MWh（28 kWh）
-        df['max_charge_power'] = 0.0066 # MW（6.6 kW）
+        df['battery_capacity'] = 0.06  # MWh（60 kWh）
+        df['max_charge_power'] = 0.022 # MW（22 kW）
         df['efficiency'] = 0.95
 
         # 掩码
@@ -498,12 +498,12 @@ class ScenarioGenerator1:
         uc_mask = df['ev_type'] == 'uc'
         cc_mask = df['ev_type'] == 'cc'
 
-        # UC：单独设置晚上到达（18:00-20:00），标记为 day，避免跨天逻辑
+        # UC：单独设置晚上到达（16:00-19:00），标记为 day，避免跨天逻辑
         num_uc = int(uc_mask.sum())
         if num_uc > 0:
-            uc_arrival = rng.normal(18.0, 2.06, num_uc).clip(16.0, 20.0)
+            uc_arrival = rng.normal(17.5, 2.06, num_uc).clip(16.0, 19.0)
             df.loc[uc_mask, 'arrival_time'] = uc_arrival
-            df.loc[uc_mask, 'charging_type'] = 'day'
+            df.loc[uc_mask, 'charging_type'] = 'day'  
             df.loc[uc_mask, 'soc_arrival'] = rng.uniform(0.2, 0.35, num_uc)
             df.loc[uc_mask, 'soc_departure'] = rng.uniform(0.85, 0.95, num_uc)
 
@@ -511,8 +511,8 @@ class ScenarioGenerator1:
         day_cc_mask = day_mask & cc_mask
         num_day_cc = int(day_cc_mask.sum())
         if num_day_cc > 0:
-            df.loc[day_cc_mask, 'arrival_time'] = rng.normal(8.82, 1.08, num_day_cc).clip(7.5, 10.5)
-            df.loc[day_cc_mask, 'departure_time'] = rng.normal(18.55, 2.06, num_day_cc).clip(16.0, 21.0)
+            df.loc[day_cc_mask, 'arrival_time'] = rng.normal(8.82, 1.08, num_day_cc).clip(8.0, 10.0)
+            df.loc[day_cc_mask, 'departure_time'] = rng.normal(16.55, 2.06, num_day_cc).clip(16.0, 18.0)
             df.loc[day_cc_mask, 'soc_arrival'] = rng.uniform(0.2, 0.35, num_day_cc)
             df.loc[day_cc_mask, 'soc_departure'] = rng.uniform(0.85, 0.95, num_day_cc)
 
@@ -520,8 +520,8 @@ class ScenarioGenerator1:
         night_cc_mask = night_mask & cc_mask
         num_night_cc = int(night_cc_mask.sum())
         if num_night_cc > 0:
-            df.loc[night_cc_mask, 'arrival_time'] = rng.normal(22.91, 3.2, num_night_cc).clip(20.9, 24.0)
-            df.loc[night_cc_mask, 'departure_time'] = rng.normal(8.95, 1.4, num_night_cc).clip(7.0, 10.0)
+            df.loc[night_cc_mask, 'arrival_time'] = rng.normal(16.91, 3.2, num_night_cc).clip(16.0, 18.0)
+            df.loc[night_cc_mask, 'departure_time'] = rng.normal(4.95, 1.4, num_night_cc).clip(4.0, 6.0)
             df.loc[night_cc_mask, 'soc_arrival'] = rng.uniform(0.2, 0.35, num_night_cc)
             df.loc[night_cc_mask, 'soc_departure'] = rng.uniform(0.85, 0.95, num_night_cc)
 
@@ -594,18 +594,18 @@ class ScenarioGenerator1:
             scenario['charging_price'] = ev_profiles['charging_price'].values
             
             # 为白天充电的EV生成场景参数（连续小时时间）
-            scenario.loc[day_mask, 'arrival_time'] = self.rng.normal(8.82, 1.08, num_day_evs).clip(7.5, 10.5)
-            scenario.loc[day_mask, 'departure_time'] = self.rng.normal(18.55, 2.06, num_day_evs).clip(16.0, 21.0)
+            scenario.loc[day_mask, 'arrival_time'] = self.rng.normal(8.82, 1.08, num_day_evs).clip(8.0, 10.0)
+            scenario.loc[day_mask, 'departure_time'] = self.rng.normal(16.55, 2.06, num_day_evs).clip(16.0, 18.0)
             scenario.loc[day_mask, 'soc_arrival'] = self.rng.uniform(0.2, 0.35, num_day_evs).clip(0.2, 0.35)
             scenario.loc[day_mask, 'soc_departure'] = self.rng.uniform(0.85, 0.95, num_day_evs).clip(0.85, 0.95)
             
             # 为夜间充电的EV生成场景参数（连续小时时间）
-            scenario.loc[night_mask, 'arrival_time'] = self.rng.normal(22.91, 3.2, num_night_evs).clip(20.9, 24.0)
-            scenario.loc[night_mask, 'departure_time'] = self.rng.normal(8.95, 1.4, num_night_evs).clip(7.0, 10.0)
+            scenario.loc[night_mask, 'arrival_time'] = self.rng.normal(16.91, 3.2, num_night_evs).clip(16.0, 18.0)
+            scenario.loc[night_mask, 'departure_time'] = self.rng.normal(4.95, 1.4, num_night_evs).clip(4.0, 6.0)
             scenario.loc[night_mask, 'soc_arrival'] = self.rng.uniform(0.2, 0.35, num_night_evs).clip(0.2, 0.35)
             scenario.loc[night_mask, 'soc_departure'] = self.rng.uniform(0.85, 0.95, num_night_evs).clip(0.85, 0.95)
 
-            # 选择“最后一辆 日间充电 的 cc 车”作为特殊车辆（18:00 到达，23:00 离开），不改变任何计数
+            # 选择"最后一辆 日间充电 的 cc 车"作为特殊车辆（16:00 到达，23:00 离开），不改变任何计数
             day_cc_mask_current = (scenario['ev_type'] == 'cc') & (scenario['charging_type'] == 'day')
             if day_cc_mask_current.any():
                 special_idx = scenario.index[day_cc_mask_current].max()
@@ -616,6 +616,7 @@ class ScenarioGenerator1:
                     special_idx = scenario.index[cc_mask_current].max()
                 else:
                     special_idx = scenario.index.max()  # 兜底
+            
             scenario.loc[special_idx, 'arrival_time'] = 16.0  # 小时
             scenario.loc[special_idx, 'departure_time'] = 23.0  # 小时（不跨天）
             scenario.loc[special_idx, 'soc_arrival'] = 0.6
@@ -632,8 +633,8 @@ class ScenarioGenerator1:
             uc_mask = scenario['ev_type'] == 'uc'
             num_uc = int(uc_mask.sum())
             if num_uc > 0:
-                uc_arrival = self.rng.normal(18.0, 2.06, num_uc).clip(16.0, 20.0)
-                uc_departure = self.rng.normal(23.0, 2.06, num_uc).clip(23.0, 24.0)
+                uc_arrival = self.rng.normal(18.5, 2.06, num_uc).clip(18.0, 19.0)
+                uc_departure = self.rng.normal(22.5, 2.06, num_uc).clip(22.0, 23.0)
                 uc_soc_arrival = self.rng.uniform(0.3, 0.35, num_uc).clip(0.2, 0.95)
                 uc_soc_departure = self.rng.uniform(0.85, 0.95, num_uc).clip(0.85, 0.95)
                 scenario.loc[uc_mask, 'arrival_time'] = uc_arrival
@@ -748,8 +749,8 @@ class ScenarioGenerator1:
 
         scenarios = []
         for _ in range(self.num_scenarios):
-            agc_up_noise = self.rng.normal(1, 0.1, T)
-            agc_dn_noise = self.rng.normal(1, 0.1, T)
+            agc_up_noise = self.rng.normal(1, 0.01, T)
+            agc_dn_noise = self.rng.normal(1, 0.01, T)
             scenario = pd.DataFrame({
                 'agc_up': base_up * agc_up_noise,
                 'agc_dn': base_dn * agc_dn_noise

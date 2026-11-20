@@ -4,7 +4,7 @@ import numpy as np
 import random
 import gc
 from data_loader import DataLoader
-from scenario_generator import ScenarioGenerator
+from scenario_generator import ScenarioGenerator, ScenarioGenerator1
 from case1_model import V2GOptimizationModelCase1
 from case2_model import V2GOptimizationModelCase2
 from case3_model import V2GOptimizationModelCase3
@@ -17,6 +17,7 @@ from plot import plot_es_energy_change
 from plot import plot_ev_reg_bids_and_capacity_price
 from plot import plot_agc_signal_both
 from plot import plot_es_energy_change_per_scenario
+from plot import plot_ev_soc_cc
 
 def get_case_selection():
     """获取用户选择的case"""
@@ -63,34 +64,47 @@ def create_model(case, reduced_ev_scenarios, reduced_price_scenarios, reduced_ag
     except Exception as e:
         raise RuntimeError(f"创建 Case {case} 模型时出错: {str(e)}")
 
-def main():
-    # 1. 获取用户选择的case
-    selected_case = get_case_selection()
-    print(f"\n您选择了 Case {selected_case}")
+def generate_fixed_scenarios(case):
+    """生成固定的场景数据，确保所有case使用相同的场景
     
-    # 2. 加载基础数据
-    print("\n正在加载基础数据...")
+    Args:
+        case: 选择的case编号，用于决定使用哪个场景生成器
+    
+    Returns:
+        场景数据元组
+    """
+    print("\n正在生成固定场景数据...")
     try:
         seed = 42
         data_loader = DataLoader(data_dir="../data")
-        # 由场景生成器统一生成EV基准数据（使用同一seed）
-        scenario_gen = ScenarioGenerator(num_scenarios=100, num_clusters=4, seed=seed)
-        ev_profiles = scenario_gen.generate_base_ev_profiles(num_evs=20, discount=0.2, charging_price=180, use_timeslot=True)
+        
+        # 根据case选择不同的场景生成器
+        # Case 4 需要使用ScenarioGenerator1（特殊的EV场景生成逻辑）和自定义AGC信号
+        if case == 4:
+            # Case 4 使用 ScenarioGenerator1 并读取预设的K值
+            scenario_gen = ScenarioGenerator1(num_scenarios=100, num_clusters=2, seed=seed)
+            capacity_reserves = data_loader.load_capacity_reserves()
+            print("Case 4: 使用ScenarioGenerator1")
+        else:
+            # Case 1, 2, 3 使用 ScenarioGenerator
+            scenario_gen = ScenarioGenerator(num_scenarios=100, num_clusters=1, seed=seed)
+            print("Case 1/2/3: 使用ScenarioGenerator")
+        
+        ev_profiles = scenario_gen.generate_base_ev_profiles(num_evs=100, discount=0.2, charging_price=180, use_timeslot=True)
         rtm_price = data_loader.load_rtm_price()
         dam_price = data_loader.load_dam_price()
-        agc_signal = data_loader.load_agc_signal()
+        
+        # Case 4 需要加载特殊的AGC信号（包含agc_up和agc_dn）
+        if case == 4:
+            agc_signal = data_loader.load_agc_signal_test()  # 使用包含agc_up和agc_dn的数据
+        else:
+            agc_signal = data_loader.load_agc_signal()  # 使用标准的agc_delta数据
+        
         capacity_price = data_loader.load_capacity_price()
         balancing_price = data_loader.load_balancing_energy_and_price()
         mileage_multiplier = data_loader.load_multiplier()
-        print("基础数据加载完成")
-    except Exception as e:
-        print(f"加载基础数据时出错: {e}")
-        print("请检查数据文件是否存在于 ../data 目录中")
-        return
-
-    # 3. 生成初始场景，增加场景数量
-    print("正在生成场景...")
-    try:
+        
+        # 生成初始场景
         ev_scenarios = scenario_gen.generate_ev_scenarios(ev_profiles=ev_profiles)    
         price_scenarios = scenario_gen.generate_price_scenarios(
             dam_prices=dam_price,
@@ -100,29 +114,53 @@ def main():
             mileage_multiplier=mileage_multiplier,
             T=96
         )
-        # 获取AGC场景和每个时间段的容量预留值
-        agc_scenarios, capacity_reserves = scenario_gen.generate_agc_scenarios(
-            agc_signals=agc_signal, 
-            T=96
-        )
-        print("场景生成完成")
-
-    except Exception as e:
-        print(f"生成场景时出错: {e}")
-        return
-
-    # 4. K-means缩减场景
-    print("正在缩减场景...")
-    try:
+        
+        # Case 4 需要特殊处理AGC场景
+        if case == 4:
+            # Case 4 使用自定义AGC场景生成，需要传入预设的K_values
+            agc_scenarios, capacity_reserves = scenario_gen.generate_agc_scenarios(
+                agc_signals=agc_signal,
+                K_values=capacity_reserves,
+                T=96
+            )
+        else:
+            # Case 1, 2, 3 使用标准AGC场景生成
+            agc_scenarios, capacity_reserves = scenario_gen.generate_agc_scenarios(
+                agc_signals=agc_signal, 
+                T=96
+            )
+        
+        # K-means缩减场景
         reduced_ev_scenarios, reduced_price_scenarios, reduced_agc_scenarios = scenario_gen.reduce_scenarios(
             ev_scenarios=ev_scenarios,
             price_scenarios=price_scenarios,
             agc_scenarios=agc_scenarios
         )
-        print("场景缩减完成")
+        
+        print("固定场景数据生成完成")
+        # 返回场景数据和原始价格数据（用于绘图）
+        return (reduced_ev_scenarios, reduced_price_scenarios, reduced_agc_scenarios, 
+                capacity_reserves, dam_price, capacity_price, rtm_price, balancing_price, mileage_multiplier)
+        
     except Exception as e:
-        print(f"缩减场景时出错: {e}")
+        print(f"生成固定场景数据时出错: {e}")
+        import traceback
+        traceback.print_exc()
+        return None, None, None, None, None, None, None, None, None
+
+def main():
+    # 1. 获取用户选择的case
+    selected_case = get_case_selection()
+    print(f"\n您选择了 Case {selected_case}")
+    
+    # 2. 生成固定的场景数据（确保所有case使用相同场景）
+    result = generate_fixed_scenarios(selected_case)
+    if result[0] is None:
+        print("场景生成失败，程序退出")
         return
+    
+    (reduced_ev_scenarios, reduced_price_scenarios, reduced_agc_scenarios, 
+     capacity_reserves, dam_price, capacity_price, rtm_price, balancing_price, mileage_multiplier) = result
 
     # 打印缩减后场景的AGC信号和容量预留K_dn，K_up
     # try:
@@ -159,7 +197,7 @@ def main():
     # 5. 构建并求解优化模型
     try:
         # 设置CVaR参数
-        beta = 0.1 # 期望收益和CVaR的权重系数 越大越保守
+        beta = 0.9 # 期望收益和CVaR的权重系数 越大越保守
         alpha = 0.5  # 置信水平 代表利润大于等于sigma的概率
 
         # 创建对应的模型
@@ -241,19 +279,54 @@ def main():
             print("\n正在绘制EV调频投标和容量价格图像...")
             plot_ev_regulation_bids(
                 model,
-                output_path=os.path.join(output_dir, "ev_regulation_bids_and_capacity_price.png"),
+                output_path=os.path.join(output_dir, "ev_regulation_bids.png"),
                 case_name=f"Case {selected_case}"
             )
-            print(f"图像已保存到 {os.path.join(output_dir, 'ev_regulation_bids_and_capacity_price.png')}")
+            print(f"图像已保存到 {os.path.join(output_dir, 'ev_regulation_bids.png')}")
 
-            print("\n正在绘制每个场景的ES变化图像...")
-            plot_es_energy_change_per_scenario(
+            # print("\n正在绘制每个场景的ES变化图像...")
+            # plot_es_energy_change_per_scenario(
+            #     model,
+            #     dam_price,
+            #     capacity_price,
+            #     output_path=os.path.join(output_dir, "es_energy_change_per_senario.png"),
+            #     case_name=f"Case {selected_case}"
+            # )
+            
+            print("\n正在绘制ES energy变化图像...")
+            plot_es_energy_change(
                 model,
                 dam_price,
                 capacity_price,
-                output_path=os.path.join(output_dir, "es_energy_change_per_senario.png"),
+                output_path=os.path.join(output_dir, "es_energy_change.png"),
                 case_name=f"Case {selected_case}"
             )
+            print(f"图像已保存到 {os.path.join(output_dir, 'es_energy_change.png')}")
+
+            # print("\n正在绘制soc曲线...")
+            # # 获取场景数量和CC车数量
+            # num_scenarios = len(reduced_ev_scenarios)
+            # scenario_0 = reduced_ev_scenarios[0]
+            # cc_mask = scenario_0['ev_type'] == 'cc'
+            # num_cc = cc_mask.sum()
+            
+            # print(f"场景数量: {num_scenarios}, CC车数量: {num_cc}")
+            
+            # # 绘制所有场景的所有CC车的SOC
+            # for w in range(num_scenarios):
+            #     for n in range(num_cc):
+            #         try:
+            #             plot_ev_soc_cc(
+            #                 model, 
+            #                 scenario_idx=w, 
+            #                 ev_idx=n, 
+            #                 output_path=os.path.join(output_dir, f"soc_cc_ev{n}_scen{w}.png"), 
+            #                 title=f"CC EV {n} (Scenario {w})",
+            #                 percent=True
+            #             )
+            #             print(f"已保存: soc_cc_ev{n}_scen{w}.png")
+            #         except Exception as e:
+            #             print(f"绘制 soc_cc_ev{n}_scen{w} 时出错: {e}")
             
             # 绘制ES套利图像 (Case 2, 3有ES套利)
             if selected_case in [2, 3]:
@@ -265,19 +338,6 @@ def main():
                 )
                 print(f"图像已保存到 {os.path.join(output_dir, 'es_bids_and_price.png')}")
 
-            if selected_case in [1, 2, 3, 4]:
-                print("\n正在绘制ES energy变化图像...")
-                plot_es_energy_change(
-                    model,
-                    dam_price,
-                    capacity_price,
-                    output_path=os.path.join(output_dir, "es_energy_change.png"),
-                    case_name=f"Case {selected_case}"
-                )
-                print(f"图像已保存到 {os.path.join(output_dir, 'es_energy_change.png')}")
-
-            # 绘制ES调频图像 (Case 3有ES调频)
-            if selected_case == 3:
                 print("\n正在绘制ES调频投标图像...")
                 plot_es_regulation_bids(
                     model,
@@ -285,10 +345,21 @@ def main():
                     case_name=f"Case {selected_case}"
                 )
                 print(f"图像已保存到 {os.path.join(output_dir, 'es_regulation_bids.png')}")
+
         except Exception as e:
             print(f"\n绘图过程中出现错误：{e}")
+            # 绘制ES调频图像 (Case 3有ES调频)
+            # if selected_case == 3:
+            #     print("\n正在绘制ES调频投标图像...")
+            #     plot_es_regulation_bids(
+            #         model,
+            #         output_path=os.path.join(output_dir, "es_regulation_bids.png"),
+            #         case_name=f"Case {selected_case}"
+            #     )
+            #     print(f"图像已保存到 {os.path.join(output_dir, 'es_regulation_bids.png')}")
 
-        # # 绘制AGC信号图（仅保存上下合并图，使用缩减后的第一个AGC场景）
+
+        # 绘制AGC信号图（仅保存上下合并图，使用缩减后的第一个AGC场景）
         # try:
         #     if len(reduced_agc_scenarios) > 0:
         #         print("\n正在绘制AGC信号图...")
